@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "./supabaseClient";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 const BRAND = { rojo: "#BD0B3B", rojoOscuro: "#8A0829", azul: "#091F42", azulClaro: "#1B3A6B" };
 
@@ -1636,6 +1637,7 @@ export default function App() {
           {tab === "catalogos" && <VistaCatalogos catalogos={catalogosGuardados} setCatalogos={setCatalogosGuardados} sedes={sedes} setSedes={setSedes} despachos={despachos} />}
         </React.Fragment>
       )}
+      <SpeedInsights />
     </div>
   );
 }
