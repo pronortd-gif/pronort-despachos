@@ -1,0 +1,265 @@
+/* ============================================
+   PRONORT · estilos base
+   Los temas se definen en la RAÍZ del documento para que
+   ningún texto herede color negro en modo oscuro.
+   ============================================ */
+
+:root,
+:root[data-theme="light"] {
+  --surface-0: #F7F6F3;
+  --surface-1: #FFFFFF;
+  --surface-2: #FFFFFF;
+  --text-primary: #0B1220;
+  --text-secondary: #5B6272;
+  --text-muted: #9498A3;
+  --border: rgba(9, 31, 66, 0.12);
+  --border-strong: rgba(9, 31, 66, 0.22);
+  --brand-accent: #BD0B3B;
+  --brand-accent-2: #091F42;
+  --ok: #0F6E56;
+  --ok-bg: rgba(93, 202, 165, 0.15);
+  --warn: #854F0B;
+  --warn-bg: rgba(239, 159, 39, 0.14);
+  --radius: 8px;
+}
+
+:root[data-theme="dark"] {
+  --surface-0: #0B0F1E;
+  --surface-1: #151B30;
+  --surface-2: #1C2438;
+  --text-primary: #F2F3F7;
+  --text-secondary: #A9AFC3;
+  --text-muted: #7A8099;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --brand-accent: #FF6B8F;
+  --brand-accent-2: #7FA8E8;
+  --ok: #5DCAA5;
+  --ok-bg: rgba(93, 202, 165, 0.14);
+  --warn: #EF9F27;
+  --warn-bg: rgba(239, 159, 39, 0.16);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  -webkit-text-size-adjust: 100%;
+}
+
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+
+/* ---- Controles de formulario ---- */
+input, select, textarea, button {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 10px;
+  height: 40px;
+  outline: none;
+  min-width: 0;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+textarea { padding: 8px 10px; height: auto; }
+input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--brand-accent);
+  box-shadow: 0 0 0 3px rgba(189, 11, 59, 0.15);
+}
+
+input[type="date"], input[type="time"] { color-scheme: light; }
+:root[data-theme="dark"] input[type="date"],
+:root[data-theme="dark"] input[type="time"] { color-scheme: dark; }
+
+input[type="checkbox"] {
+  height: 20px; width: 20px; padding: 0;
+  accent-color: var(--brand-accent);
+  cursor: pointer; flex-shrink: 0;
+}
+
+select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  padding-right: 34px; cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23BD0B3B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
+:root[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23FF6B8F' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+select:hover { border-color: var(--border-strong); }
+select option { background: var(--surface-2); color: var(--text-primary); }
+
+button {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; font-weight: 500; cursor: pointer; white-space: nowrap; user-select: none;
+}
+button:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-1); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:focus-visible { border-color: var(--brand-accent); box-shadow: 0 0 0 3px rgba(189, 11, 59, 0.15); }
+
+a { color: var(--brand-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+th { color: var(--text-secondary); font-weight: 500; }
+
+/* ---- Contenedor principal ---- */
+.app-shell { padding: 1.25rem; max-width: 860px; margin: 0 auto; }
+@media (min-width: 1100px) { .app-shell { max-width: 1080px; padding: 1.75rem; } }
+
+/* ---- Rejillas de formulario ---- */
+.form-grid { display: grid; gap: 12px; }
+.form-grid-2 { grid-template-columns: 1fr 1fr; }
+.form-grid-comprobante { grid-template-columns: 1fr 1fr; }
+.form-grid-sede { grid-template-columns: 1fr 2fr; }
+
+@media (max-width: 640px) {
+  .app-shell { padding: 0.9rem 0.75rem 2rem; }
+  .form-grid-2, .form-grid-comprobante, .form-grid-sede { grid-template-columns: 1fr; }
+  input, select, textarea, button { font-size: 16px; height: 46px; }
+  button[aria-label] { min-width: 42px; min-height: 42px; }
+  table { font-size: 12px; }
+}
+
+/* ---- Texto de ayuda bajo un campo ---- */
+.campo-ayuda { font-size: 11.5px; color: var(--text-muted); margin: 4px 0 0; line-height: 1.35; }
+
+/* ---- Campo de persona con rol explícito (evita confundir
+       "gestionado por" con "entregado por") ---- */
+.persona-campo {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-accent-2);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--surface-1);
+}
+.persona-campo + .persona-campo { margin-top: 10px; }
+.persona-campo .titulo {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600; margin-bottom: 2px;
+}
+
+/* ---- Selector visual de tipo ---- */
+.tipo-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+.tipo-chip {
+  flex: 1; min-width: 108px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 44px; border-radius: 10px;
+  border: 1.5px solid var(--border); background: var(--surface-2);
+  font-weight: 500; font-size: 13px; cursor: pointer;
+  transition: all 0.15s ease;
+}
+.tipo-chip[data-active="true"] { color: #fff; border-color: transparent; }
+.tipo-chip:hover:not([data-active="true"]) { border-color: var(--border-strong); }
+
+/* ---- Selector visual de horario ---- */
+.horario-picker { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.horario-chip {
+  flex-shrink: 0; display: flex; flex-direction: column;
+  align-items: flex-start; gap: 2px;
+  padding: 8px 14px; border-radius: 10px;
+  border: 1.5px solid var(--border); background: var(--surface-2);
+  cursor: pointer; transition: all 0.15s ease; min-width: 96px;
+}
+.horario-chip[data-active="true"] { border-color: var(--brand-accent); background: rgba(189, 11, 59, 0.08); }
+:root[data-theme="dark"] .horario-chip[data-active="true"] { background: rgba(255, 107, 143, 0.1); }
+.horario-chip .hora { font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; }
+.horario-chip .nombre { font-size: 11px; color: var(--text-secondary); }
+
+/* ---- Calendario ----
+   Sin aspect-ratio: en PC las celdas cuadradas se volvían enormes
+   y en móvil quedaban angostas y apretadas. Ahora la altura crece
+   por tamaño de pantalla y el espacio entre celdas también. */
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cal-cell {
+  height: 54px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-start;
+  padding: 4px 2px; border-radius: 9px; cursor: pointer;
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s ease;
+}
+.cal-cell:hover { transform: scale(1.04); border-color: var(--border-strong); }
+
+@media (min-width: 700px) {
+  .cal-grid { gap: 6px; }
+  .cal-cell { height: 72px; padding: 6px 4px; }
+}
+@media (min-width: 1100px) {
+  .cal-grid { gap: 8px; }
+  .cal-cell { height: 84px; }
+}
+
+/* ---- Encabezado de horario ---- */
+.bloque-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.bloque-rango {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px;
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 20px; padding: 3px 10px; white-space: nowrap;
+}
+
+.stat-card { background: var(--surface-1); border-radius: var(--radius); padding: 1rem; }
+
+/* ---- Mapa de calor por bandas horarias ---- */
+.heat-tabla { border-collapse: separate; border-spacing: 3px; font-size: 12px; }
+.heat-celda {
+  text-align: center; border-radius: 6px; padding: 7px 6px;
+  min-width: 74px; font-variant-numeric: tabular-nums;
+  transition: background 0.25s ease;
+}
+.heat-hora { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; padding-right: 8px; }
+
+/* ---- Login ---- */
+.login-wrap {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem; background: var(--surface-0);
+}
+.login-card {
+  width: 100%; max-width: 380px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 14px; padding: 1.75rem;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* ---- Vista que se convierte en imagen ---- */
+.export-view {
+  background: #ffffff; color: #0B1220; padding: 24px; width: 740px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.export-view * { color: inherit; }
+
+/* ---- Barra de pestañas ---- */
+.tabs-bar {
+  display: flex; gap: 2px; margin-bottom: 20px;
+  border-bottom: 0.5px solid var(--border);
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.tabs-bar::-webkit-scrollbar { display: none; }
+.tabs-bar button {
+  border: none; border-radius: 0; background: transparent;
+  border-bottom: 2px solid transparent; padding: 8px 14px;
+  font-weight: 500; white-space: nowrap; flex-shrink: 0;
+}
+@media (max-width: 640px) { .tabs-bar button { padding: 8px 11px; font-size: 13px; } }
+
+/* ---- Animaciones ---- */
+@keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.view-in { animation: viewIn 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes cardIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.card-in { animation: cardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes modalFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalPop { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes spinIn { from { transform: rotate(-90deg) scale(0.6); opacity: 0; } to { transform: rotate(0) scale(1); opacity: 1; } }
+@keyframes statIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
