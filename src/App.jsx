@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { hoy } from "./constants";
-import { Icon, LogoPronort } from "./ui";
+import { Icon, LogoPronort, AvisoError } from "./ui";
 import { Login } from "./Login";
 import {
   useSedesDB, useBloquesDB, useDespachosDB, useCatalogosDB,
@@ -42,14 +42,18 @@ function AppInterna({ cerrarSesion, correo }) {
   const metricasDB = useMetricasDB();
   const horariosDB = useMapaHorarios();
 
+  const cargarFecha = bloquesDB.cargarFecha;
+  const recargarHorarios = horariosDB.recargar;
+  const recargarDespachos = despachosDB.recargar;
+
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", tema);
   }, [tema]);
 
   // Los horarios se cargan por fecha, solo cuando se abre ese día.
   useEffect(() => {
-    if (diaSeleccionado) bloquesDB.cargarFecha(diaSeleccionado);
-  }, [diaSeleccionado, bloquesDB]);
+    if (diaSeleccionado) cargarFecha(diaSeleccionado);
+  }, [diaSeleccionado, cargarFecha]);
 
   // Reportes usa un mapa aparte de todos los horarios (para no tener
   // que cargar fecha por fecha). Se refresca al abrir Reportes o el
@@ -57,14 +61,39 @@ function AppInterna({ cerrarSesion, correo }) {
   // siempre se vea reflejado ahí (mapa de calor y el puntito de
   // "horario vacío" en el calendario).
   useEffect(() => {
-    if (tab === "reportes" || (tab === "calendario" && !diaSeleccionado)) horariosDB.recargar();
-  }, [tab, diaSeleccionado]);
+    if (tab === "reportes" || (tab === "calendario" && !diaSeleccionado)) recargarHorarios();
+  }, [tab, diaSeleccionado, recargarHorarios]);
+
+  // Los datos se cargan una sola vez al abrir. Si alguien más registró
+  // despachos mientras esta pestaña estaba en segundo plano, al volver a
+  // ella se traen los cambios: es la forma más barata de que dos
+  // personas trabajando a la vez no se pisen sin enterarse.
+  const [refrescando, setRefrescando] = useState(false);
+  const refrescar = useCallback(async () => {
+    setRefrescando(true);
+    await Promise.all([recargarDespachos(), recargarHorarios()]);
+    if (diaSeleccionado) await cargarFecha(diaSeleccionado, true);
+    setRefrescando(false);
+  }, [recargarDespachos, recargarHorarios, cargarFecha, diaSeleccionado]);
+
+  useEffect(() => {
+    const alVolver = () => { if (document.visibilityState === "visible") refrescar(); };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => document.removeEventListener("visibilitychange", alVolver);
+  }, [refrescar]);
 
   const cargando = sedesDB.cargando || despachosDB.cargando || catalogosDB.cargando || metricasDB.cargando || horariosDB.cargando;
 
+  // Un error de carga no puede quedarse callado: sin esto, una consulta
+  // fallida se veía igual que "no hay datos todavía".
+  const errorCarga = sedesDB.error || despachosDB.error || catalogosDB.error || metricasDB.error || horariosDB.error || bloquesDB.error;
+  const [aviso, setAviso] = useState("");
+  const mostrarSiFalla = (mensaje) => { if (mensaje) setAviso(mensaje); return mensaje; };
+
   // Cada despacho guardado nutre los catálogos de sugerencias.
   const guardarDespachoYAprender = async (despacho) => {
-    await despachosDB.guardar(despacho);
+    const error = await despachosDB.guardar(despacho);
+    if (error) return mostrarSiFalla(error);
     const aprender = [
       ["cliente", despacho.cliente],
       ["proveedor", despacho.proveedor],
@@ -75,22 +104,50 @@ function AppInterna({ cerrarSesion, correo }) {
       ["celular", despacho.celular2],
       ["direccion", despacho.direccion],
     ];
+    // Las sugerencias son un extra: si alguna falla no se le arruina el
+    // guardado al usuario, que es lo que de verdad importa.
     aprender.forEach(([campo, valor]) => {
       if (valor && valor.trim()) catalogosDB.agregarSiNoExiste(campo, valor.trim());
     });
+    return "";
   };
 
-  const guardarBloqueDelDia = (bloque) => {
-    if (!diaSeleccionado) return;
+  const guardarBloqueDelDia = async (bloque) => {
+    if (!diaSeleccionado) return "Selecciona un día antes de crear un horario.";
     const existentes = bloquesDB.bloquesDe(diaSeleccionado);
-    const yaEsta = existentes.some((b) => b.id === bloque.id);
-    if (yaEsta) bloquesDB.actualizar(diaSeleccionado, bloque.id, bloque);
-    else bloquesDB.agregar(diaSeleccionado, bloque);
+    const yaEsta = bloque.id && existentes.some((b) => b.id === bloque.id);
+    const { error } = yaEsta
+      ? await bloquesDB.actualizar(diaSeleccionado, bloque.id, bloque)
+      : await bloquesDB.crear(diaSeleccionado, bloque);
+    return mostrarSiFalla(error);
+  };
+
+  // Borrar un horario deja sus despachos sin horario asignado (la base de
+  // datos les pone bloque_id en NULL). Se devuelven los ids afectados
+  // para poder volver a vincularlos si el usuario pulsa "Deshacer".
+  const eliminarBloqueDelDia = async (id) => {
+    const afectados = despachosDB.despachos.filter((d) => d.bloqueId === id).map((d) => d.id);
+    const error = await bloquesDB.eliminar(diaSeleccionado, id);
+    if (error) { setAviso(error); return { error, afectados: [] }; }
+    despachosDB.desasignarBloque(id);
+    return { error: "", afectados };
+  };
+
+  // Deshacer de verdad: el horario se recrea con SU MISMO id y los
+  // despachos que lo usaban vuelven a apuntarle. Recrearlo con un id
+  // nuevo (como se hacía antes) dejaba el horario vacío y sus despachos
+  // huérfanos en "Sin horario asignado".
+  const restaurarBloque = async (bloque, idsDespachos) => {
+    const { bloque: creado, error } = await bloquesDB.crear(diaSeleccionado, bloque);
+    if (error) return mostrarSiFalla(error);
+    return mostrarSiFalla(await despachosDB.reasignarBloque(idsDespachos, creado.id));
   };
 
   const guardarSede = async (codigoViejo, sedeNueva) => {
-    if (codigoViejo) await sedesDB.actualizar(codigoViejo, sedeNueva);
-    else await sedesDB.agregar(sedeNueva);
+    const error = codigoViejo
+      ? await sedesDB.actualizar(codigoViejo, sedeNueva)
+      : await sedesDB.agregar(sedeNueva);
+    return mostrarSiFalla(error);
   };
 
   const editarDesdeHistorial = (d) => { setDiaSeleccionado(d.fecha); setTab("calendario"); };
@@ -114,6 +171,9 @@ function AppInterna({ cerrarSesion, correo }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button onClick={refrescar} disabled={refrescando} aria-label="Refrescar datos" title="Traer los cambios que hayan hecho otros" style={{ width: 38, height: 38, padding: 0 }}>
+            <Icon name="refresh" size={17} />
+          </button>
           <button key={tema} onClick={() => setTema(oscuro ? "light" : "dark")} aria-label="Cambiar tema" style={{ width: 38, height: 38, padding: 0, animation: "spinIn 0.3s cubic-bezier(0.16,1,0.3,1)" }}>
             <Icon name={oscuro ? "sun" : "moon"} size={17} />
           </button>
@@ -122,6 +182,9 @@ function AppInterna({ cerrarSesion, correo }) {
           </button>
         </div>
       </div>
+
+      {errorCarga && <AvisoError mensaje={errorCarga} onReintentar={refrescar} />}
+      {aviso && <AvisoError mensaje={aviso} onCerrar={() => setAviso("")} />}
 
       {cargando ? (
         <PantallaCarga texto="Cargando datos de Pronort..." />
@@ -157,9 +220,10 @@ function AppInterna({ cerrarSesion, correo }) {
               bloques={bloquesDB.bloquesDe(diaSeleccionado)}
               cargandoBloques={bloquesDB.cargandoDe(diaSeleccionado)}
               onGuardarBloque={guardarBloqueDelDia}
-              onEliminarBloque={(id) => bloquesDB.eliminar(diaSeleccionado, id)}
+              onEliminarBloque={eliminarBloqueDelDia}
+              onRestaurarBloque={restaurarBloque}
               onCopiarHorarios={bloquesDB.copiarDesde}
-              onCrearHorarioRapido={bloquesDB.crearRapido}
+              onCrearHorarioRapido={(datos) => bloquesDB.crear(diaSeleccionado, datos)}
               despachos={despachosDB.despachos}
               onGuardarDespacho={guardarDespachoYAprender}
               onEliminarDespacho={despachosDB.eliminar}
@@ -176,9 +240,13 @@ function AppInterna({ cerrarSesion, correo }) {
               despachos={despachosDB.despachos}
               onEditar={editarDesdeHistorial}
               onEliminar={despachosDB.eliminar}
+              onRestaurar={guardarDespachoYAprender}
               onCambiarEstado={despachosDB.cambiarEstado}
               sedes={sedesDB.sedes}
               oscuro={oscuro}
+              historicoCompleto={despachosDB.historicoCompleto}
+              cargandoHistorico={despachosDB.cargandoHistorico}
+              onCargarHistorico={() => { despachosDB.cargarHistorico(); recargarHorarios(true); }}
             />
           )}
 
@@ -191,6 +259,9 @@ function AppInterna({ cerrarSesion, correo }) {
               sedes={sedesDB.sedes}
               mapaHorarios={horariosDB.mapa}
               oscuro={oscuro}
+              historicoCompleto={despachosDB.historicoCompleto}
+              cargandoHistorico={despachosDB.cargandoHistorico}
+              onCargarHistorico={() => { despachosDB.cargarHistorico(); recargarHorarios(true); }}
             />
           )}
 

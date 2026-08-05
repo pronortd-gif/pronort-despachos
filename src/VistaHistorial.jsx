@@ -1,15 +1,19 @@
 import React, { useState, useMemo } from "react";
 import { TIPOS, sedeLabel, tituloConCelular, personasConCelular, mostrarComprobante } from "./constants";
-import { Icon, Badge, Modal, ConfirmarEliminar, ToastDeshacer, SelectorEstado } from "./ui";
+import { Icon, Badge, Modal, ConfirmarEliminar, ToastDeshacer, SelectorEstado, AvisoError } from "./ui";
 import { useDeshacer } from "./campos";
 
-export function VistaHistorial({ despachos, onEditar, onEliminar, onCambiarEstado, sedes, oscuro }) {
+export function VistaHistorial({
+  despachos, onEditar, onEliminar, onRestaurar, onCambiarEstado, sedes, oscuro,
+  historicoCompleto, cargandoHistorico, onCargarHistorico,
+}) {
   const [filtroTexto, setFiltroTexto] = useState("");
   const [filtroFecha, setFiltroFecha] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("");
   const [filtroSede, setFiltroSede] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
   const [confirmarBorrado, setConfirmarBorrado] = useState(null);
+  const [error, setError] = useState("");
   const { pendiente, disparar, limpiar } = useDeshacer();
 
   const filtrados = useMemo(() => despachos
@@ -23,18 +27,42 @@ export function VistaHistorial({ despachos, onEditar, onEliminar, onCambiarEstad
       return [d.cliente, d.proveedor, d.tienda, d.sedeDestino, d.persona1, d.persona2, d.comprobante, d.numGuia, d.direccion, d.celular, d.celular1, d.celular2]
         .some((campo) => (campo || "").toLowerCase().indexOf(q) !== -1);
     })
-    .sort((a, b) => (a.fecha < b.fecha ? 1 : -1)),
+    // Comparador completo (devuelve 0 en el empate): el anterior nunca
+    // devolvía 0, así que dentro de una misma fecha el orden podía
+    // cambiar solo entre renders. El desempate por hora de creación
+    // deja la lista quieta.
+    .sort((a, b) => {
+      if (a.fecha !== b.fecha) return a.fecha < b.fecha ? 1 : -1;
+      return (b.creadoEn || "").localeCompare(a.creadoEn || "");
+    }),
   [despachos, filtroTexto, filtroFecha, filtroTipo, filtroSede, filtroEstado]);
 
   // Estrictamente "pendiente" (no "distinto de entregado"), para que
   // este botón masivo nunca toque los que ya están en "no entregado".
   const pendientesFiltrados = filtrados.filter((d) => (d.estado || "pendiente") === "pendiente");
 
-  const ejecutarBorrado = () => {
+  const ejecutarBorrado = async () => {
     if (!confirmarBorrado) return;
-    onEliminar(confirmarBorrado.id);
-    disparar("Despacho eliminado.", () => {});
+    const d = confirmarBorrado;
     setConfirmarBorrado(null);
+    setError("");
+    const err = await onEliminar(d.id);
+    if (err) { setError(err); return; }
+    // El "Deshacer" de esta pantalla no hacía nada: se disparaba con una
+    // función vacía, así que el botón aparecía, el usuario lo pulsaba y
+    // el despacho seguía borrado. Ahora reinserta el registro con su
+    // mismo id.
+    disparar("Despacho eliminado.", async () => {
+      const errRestaurar = await onRestaurar(d);
+      if (errRestaurar) setError(errRestaurar);
+    });
+  };
+
+  const marcarTodosEntregados = async () => {
+    setError("");
+    const errores = await Promise.all(pendientesFiltrados.map((d) => onCambiarEstado(d.id, "entregado")));
+    const primerError = errores.filter(Boolean)[0];
+    if (primerError) setError(primerError);
   };
 
   const limpiarFiltros = () => { setFiltroTexto(""); setFiltroFecha(""); setFiltroTipo(""); setFiltroSede(""); setFiltroEstado(""); };
@@ -65,11 +93,26 @@ export function VistaHistorial({ despachos, onEditar, onEliminar, onCambiarEstad
         {hayFiltros && <button onClick={limpiarFiltros} style={{ fontSize: 13 }}><Icon name="x" size={13} /> Limpiar</button>}
         <div style={{ flex: 1 }} />
         {pendientesFiltrados.length > 0 && (
-          <button onClick={() => pendientesFiltrados.forEach((d) => onCambiarEstado(d.id, "entregado"))} style={{ fontSize: 13 }}>
+          <button onClick={marcarTodosEntregados} style={{ fontSize: 13 }}>
             <Icon name="checks" size={14} /> Marcar {pendientesFiltrados.length} como entregados
           </button>
         )}
       </div>
+
+      <AvisoError mensaje={error} onCerrar={() => setError("")} />
+
+      {/* Al abrir la app solo se traen los últimos 90 días. Decirlo
+          explícitamente evita que alguien busque un despacho antiguo,
+          no lo encuentre y concluya que se perdió. */}
+      {!historicoCompleto && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--surface-1)", borderRadius: "var(--radius)", padding: "8px 12px", marginBottom: 10 }}>
+          <Icon name="clock" size={14} />
+          <span style={{ flex: 1, fontSize: 12.5, color: "var(--text-secondary)" }}>Mostrando los últimos 90 días.</span>
+          <button onClick={onCargarHistorico} disabled={cargandoHistorico} style={{ fontSize: 12, height: 30, padding: "0 10px" }}>
+            {cargandoHistorico ? "Cargando..." : "Cargar todo el histórico"}
+          </button>
+        </div>
+      )}
 
       <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 8 }}>{filtrados.length} resultados</p>
 

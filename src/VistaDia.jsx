@@ -1,6 +1,6 @@
 import React, { useState, useRef } from "react";
-import { TIPOS, BRAND, CAPACIDAD_BLOQUE, sedeLabel, formatFechaLarga, etiquetaBloque, tituloDespacho, fechaMasDias } from "./constants";
-import { Icon, Badge, Modal, ConfirmarEliminar, ToastDeshacer } from "./ui";
+import { TIPOS, BRAND, CAPACIDAD_BLOQUE, sedeLabel, formatFechaLarga, etiquetaBloque, tituloDespacho, fechaMasDias, ordenarDespachos } from "./constants";
+import { Icon, Badge, Modal, ConfirmarEliminar, ToastDeshacer, AvisoError } from "./ui";
 import { useDeshacer } from "./campos";
 import { FormDespacho } from "./FormDespacho";
 import { FormBloque } from "./FormBloque";
@@ -19,7 +19,7 @@ function BarraCapacidad({ cantidad }) {
 
 export function VistaDia({
   fecha, onVolver, bloques, cargandoBloques,
-  onGuardarBloque, onEliminarBloque, onCopiarHorarios, onCrearHorarioRapido,
+  onGuardarBloque, onEliminarBloque, onRestaurarBloque, onCopiarHorarios, onCrearHorarioRapido,
   despachos, onGuardarDespacho, onEliminarDespacho, onCambiarEstado, onActualizarOrden,
   oscuro, catalogos, sedes,
 }) {
@@ -29,6 +29,7 @@ export function VistaDia({
   const exportRef = useRef(null);
   const [exportando, setExportando] = useState(false);
   const [aviso, setAviso] = useState("");
+  const [error, setError] = useState("");
 
   const despachosDia = despachos.filter((d) => d.fecha === fecha);
 
@@ -37,36 +38,48 @@ export function VistaDia({
 
   const sinHorario = despachosDia.filter((d) => !d.bloqueId || !bloques.some((b) => b.id === d.bloqueId));
 
-  const guardarDespacho = (d) => { onGuardarDespacho(d); cerrarModal(); };
-  const guardarBloque = (b) => { onGuardarBloque(b); cerrarModal(); };
+  // El modal solo se cierra si el guardado realmente funcionó. Antes se
+  // cerraba siempre: si Supabase rechazaba el insert, el despacho recién
+  // escrito desaparecía sin que nadie se enterara.
+  const guardarDespacho = async (d) => {
+    const err = await onGuardarDespacho(d);
+    if (!err) cerrarModal();
+    return err;
+  };
+  const guardarBloque = async (b) => {
+    const err = await onGuardarBloque(b);
+    if (!err) cerrarModal();
+    return err;
+  };
 
   const pedirEliminarDespacho = (d) => setModal({ tipo: "confirmar-despacho", data: d });
   const pedirEliminarBloque = (b) => setModal({ tipo: "confirmar-bloque", data: b, enUso: conteoPorBloqueId[b.id] || 0 });
 
-  const ejecutarBorrado = () => {
+  const ejecutarBorrado = async () => {
     if (!modal) return;
-    if (modal.tipo === "confirmar-despacho") {
-      const d = modal.data;
-      onEliminarDespacho(d.id);
-      disparar("Despacho \"" + tituloDespacho(d, sedes) + "\" eliminado.", () => onGuardarDespacho(d));
-    } else {
-      const b = modal.data;
-      onEliminarBloque(b.id);
-      disparar("Horario " + etiquetaBloque(b) + " eliminado.", () => onGuardarBloque(b));
-    }
+    const actual = modal;
     cerrarModal();
+    setError("");
+
+    if (actual.tipo === "confirmar-despacho") {
+      const d = actual.data;
+      const err = await onEliminarDespacho(d.id);
+      if (err) { setError(err); return; }
+      // El despacho se reinserta con su mismo id, así que "deshacer"
+      // devuelve exactamente el registro que había, no una copia.
+      disparar("Despacho \"" + tituloDespacho(d, sedes) + "\" eliminado.", () => onGuardarDespacho(d));
+      return;
+    }
+
+    const b = actual.data;
+    const { error: err, afectados } = await onEliminarBloque(b.id);
+    if (err) { setError(err); return; }
+    const detalle = afectados.length ? " " + afectados.length + " despacho(s) quedaron sin horario." : "";
+    disparar("Horario " + etiquetaBloque(b) + " eliminado." + detalle, () => onRestaurarBloque(b, afectados));
   };
 
-  // Orden estable dentro de un grupo: primero por "orden" manual, y
-  // si empatan (o nunca se reordenaron), por fecha de creación, para
-  // que el orden no salte solo entre recargas.
-  const ordenarGrupo = (items) => items.slice().sort((a, b) => {
-    if ((a.orden || 0) !== (b.orden || 0)) return (a.orden || 0) - (b.orden || 0);
-    return (a.creadoEn || "").localeCompare(b.creadoEn || "");
-  });
-
-  const moverDespacho = (items, id, direccion) => {
-    const ordenados = ordenarGrupo(items);
+  const moverDespacho = async (items, id, direccion) => {
+    const ordenados = ordenarDespachos(items);
     const i = ordenados.findIndex((d) => d.id === id);
     const j = i + direccion;
     if (i === -1 || j < 0 || j >= ordenados.length) return;
@@ -80,23 +93,30 @@ export function VistaDia({
     const tmp = reordenados[i];
     reordenados[i] = reordenados[j];
     reordenados[j] = tmp;
-    reordenados.forEach((d, idx) => {
-      if ((d.orden || 0) !== idx) onActualizarOrden(d.id, idx);
-    });
+
+    const cambios = [];
+    reordenados.forEach((d, idx) => { if ((d.orden || 0) !== idx) cambios.push([d.id, idx]); });
+    // Se esperan todas: si alguna falla, el orden en pantalla y el de la
+    // base de datos habrían quedado distintos sin ningún aviso.
+    const errores = await Promise.all(cambios.map(([idDespacho, idx]) => onActualizarOrden(idDespacho, idx)));
+    const primerError = errores.filter(Boolean)[0];
+    if (primerError) setError(primerError);
   };
 
-  const marcarBloqueCompleto = (bloqueId, entregado) => {
+  const marcarBloqueCompleto = async (bloqueId, entregado) => {
     // "no_entregado" nunca se toca aquí: es una decisión explícita
     // aparte, no algo que un check masivo deba poder revertir por error.
-    despachosDia.filter((d) => d.bloqueId === bloqueId && d.estado !== "no_entregado").forEach((d) => {
-      const nuevoEstado = entregado ? "entregado" : "pendiente";
-      if (d.estado !== nuevoEstado) onCambiarEstado(d.id, nuevoEstado);
-    });
+    const objetivo = entregado ? "entregado" : "pendiente";
+    const cambios = despachosDia.filter((d) => d.bloqueId === bloqueId && d.estado !== "no_entregado" && d.estado !== objetivo);
+    const errores = await Promise.all(cambios.map((d) => onCambiarEstado(d.id, objetivo)));
+    const primerError = errores.filter(Boolean)[0];
+    if (primerError) setError(primerError);
   };
 
   const copiarDelDiaAnterior = async () => {
     const resultado = await onCopiarHorarios(fechaMasDias(fecha, -1), fecha);
-    if (resultado && resultado.copiados > 0) setAviso(resultado.copiados + " horario(s) copiados del día anterior.");
+    if (resultado.error) { setError(resultado.error); return; }
+    if (resultado.copiados > 0) setAviso(resultado.copiados + " horario(s) copiados del día anterior.");
     else setAviso("El día anterior no tiene horarios para copiar.");
   };
 
@@ -106,19 +126,18 @@ export function VistaDia({
   const totalPorTipo = {};
   Object.keys(TIPOS).forEach((k) => { totalPorTipo[k] = despachosDia.filter((d) => d.tipo === k).length; });
 
-  async function cargarLibreria() {
-    if (window.htmlToImage) return;
-    const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js";
-    await new Promise((resolve, reject) => { s.onload = resolve; s.onerror = reject; document.body.appendChild(s); });
-  }
+  // html-to-image se carga solo cuando se pide una imagen (import
+  // dinámico), no en el arranque. Antes venía de un CDN externo con un
+  // setTimeout a ojo esperando a que apareciera en window.
   const generarPng = async () => {
-    await cargarLibreria();
-    await new Promise((r) => setTimeout(r, 150));
-    return window.htmlToImage.toBlob(exportRef.current, { backgroundColor: "#ffffff", pixelRatio: 2 });
+    const htmlToImage = await import("html-to-image");
+    // Dos frames para que la vista oculta termine de pintarse antes de
+    // capturarla; es más fiable que un temporizador fijo.
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return htmlToImage.toBlob(exportRef.current, { backgroundColor: "#ffffff", pixelRatio: 2 });
   };
   const descargarImagen = async () => {
-    setExportando(true); setAviso("");
+    setExportando(true); setAviso(""); setError("");
     try {
       const blob = await generarPng();
       const url = URL.createObjectURL(blob);
@@ -126,11 +145,11 @@ export function VistaDia({
       link.download = "programacion-" + fecha + ".png";
       link.href = url; link.click();
       URL.revokeObjectURL(url);
-    } catch (e) { setAviso("No se pudo generar la imagen."); }
+    } catch (e) { console.error("[Pronort] Error al generar la imagen:", e); setError("No se pudo generar la imagen."); }
     finally { setExportando(false); }
   };
   const copiarImagen = async () => {
-    setExportando(true); setAviso("");
+    setExportando(true); setAviso(""); setError("");
     try {
       const blob = await generarPng();
       if (navigator.clipboard && window.ClipboardItem) {
@@ -144,12 +163,12 @@ export function VistaDia({
         URL.revokeObjectURL(url);
         setAviso("Tu navegador no permite copiar imágenes: se descargó.");
       }
-    } catch (e) { setAviso("No se pudo copiar. Usa el botón de descargar."); }
+    } catch (e) { console.error("[Pronort] Error al copiar la imagen:", e); setError("No se pudo copiar. Usa el botón de descargar."); }
     finally { setExportando(false); }
   };
 
   const renderGrupo = (titulo, subtitulo, itemsSinOrdenar, bloque) => {
-    const items = ordenarGrupo(itemsSinOrdenar);
+    const items = ordenarDespachos(itemsSinOrdenar);
     const elegibles = items.filter((d) => d.estado !== "no_entregado");
     return (
     <div key={bloque ? bloque.id : "sin-horario"} style={{ marginBottom: 20 }}>
@@ -229,6 +248,7 @@ export function VistaDia({
         )}
       </div>
 
+      <AvisoError mensaje={error} onCerrar={() => setError("")} />
       {aviso && <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 12px" }}>{aviso}</p>}
 
       <div style={{ background: "var(--surface-2)", padding: "1rem", borderRadius: 12, border: "0.5px solid var(--border)" }}>
@@ -295,7 +315,7 @@ export function VistaDia({
             todosDespachos={despachos}
             oscuro={oscuro}
             conteoPorBloqueId={conteoPorBloqueId}
-            onCrearHorario={(datosHorario) => onCrearHorarioRapido(fecha, datosHorario)}
+            onCrearHorario={onCrearHorarioRapido}
           />
         </Modal>
       )}

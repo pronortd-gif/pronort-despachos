@@ -128,8 +128,17 @@ th { color: var(--text-secondary); font-weight: 500; }
   table { font-size: 12px; }
 }
 
-/* ---- Texto de ayuda bajo un campo ---- */
+/* ---- Etiqueta y texto de ayuda de un campo ---- */
+/* .campo-label estaba copiado como objeto inline idéntico en 6
+   archivos; centralizado aquí, cambiar el estilo de las etiquetas es
+   un solo cambio en vez de seis. */
+.campo-label { font-size: 13px; color: var(--text-secondary); display: block; margin-bottom: 4px; }
 .campo-ayuda { font-size: 11.5px; color: var(--text-muted); margin: 4px 0 0; line-height: 1.35; }
+
+/* Fila de un formulario y barra de botones al pie: otras dos
+   repeticiones inline en todos los formularios. */
+.campo-fila { margin-bottom: 14px; }
+.form-acciones { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 
 /* ---- Campo de persona con rol explícito (evita confundir
        "gestionado por" con "entregado por") ---- */

@@ -1,4 +1,4 @@
-# Pronort · Programación de despachos — v2.1
+# Pronort · Programación de despachos — v2.3
 
 Guía de actualización. Sigue los pasos en orden.
 
@@ -44,18 +44,39 @@ Qué hace: agrega dos columnas nuevas (`celular_persona1`, `celular_persona2`) a
 
 ## Paso 2 — Subir el código
 
-Borra la carpeta anterior del proyecto, extrae este zip en su lugar, abre una terminal dentro de ella y corre:
+**La primera vez** (solo una vez en la vida del proyecto), abre una terminal dentro de la carpeta y corre:
 
 ```
 git init
 git add .
-git commit -m "Version 2.1"
+git commit -m "Estado inicial"
 git branch -M main
 git remote add origin https://github.com/TU-USUARIO/pronort-despachos.git
-git push -u origin main --force
+git push -u origin main
 ```
 
-Cambia `TU-USUARIO` por tu usuario real de GitHub. Vercel detecta el cambio solo y actualiza el link en 1-2 minutos; no hay que tocar nada ahí, las variables de entorno siguen siendo las mismas.
+Cambia `TU-USUARIO` por tu usuario real de GitHub.
+
+**De ahí en adelante**, para publicar cualquier cambio:
+
+```
+git add .
+git commit -m "Describe aquí qué cambiaste"
+git push
+```
+
+No borres la carpeta ni vuelvas a hacer `git init` en cada versión, y **no uses `git push --force`**.
+El historial de git es la única red de seguridad que tienes: si una versión sale con un error, con el
+historial intacto puedes volver a la anterior con un comando. Con `--force` ese historial se borra en
+cada publicación y esa vuelta atrás deja de ser posible.
+
+Vercel detecta el cambio solo y actualiza el link en 1-2 minutos; no hay que tocar nada ahí, las variables de entorno siguen siendo las mismas.
+
+### Sobre el archivo de claves
+
+Si tienes un `.txt` con la URL y la clave de Supabase dentro de la carpeta del proyecto, **sácalo de
+ahí** y guárdalo en un gestor de contraseñas. El `.gitignore` ya bloquea los `.txt` para que no se
+suban, pero lo seguro es que ese archivo no viva junto al código.
 
 ---
 

@@ -1,25 +1,56 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { CAMPOS_CATALOGO, colorLinea, capitalizarPalabras, limpiarCelular } from "./constants";
-import { Icon, Modal, ConfirmarEliminar, ToastDeshacer } from "./ui";
+import { Icon, Modal, ConfirmarEliminar, ToastDeshacer, AvisoError } from "./ui";
 import { useDeshacer } from "./campos";
 
-function FormSede({ inicial, onGuardar, onCancelar }) {
+function FormSede({ inicial, enUso, onGuardar, onCancelar }) {
   const [datos, setDatos] = useState(inicial || { codigo: "", nombre: "", linea: "DRYWALL" });
-  const labelStyle = { fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 };
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+
+  // El código es la clave primaria y los despachos la referencian sin
+  // "on update cascade": si la sede está en uso, Postgres rechaza el
+  // cambio de código. Antes ese rechazo se descartaba y el modal se
+  // cerraba igual, así que parecía que el cambio había funcionado.
+  const codigoBloqueado = Boolean(inicial && enUso > 0);
+
+  const guardar = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (guardando) return;
+    if (!datos.codigo.trim() || !datos.nombre.trim()) { setError("El código y el nombre son obligatorios."); return; }
+    setError("");
+    setGuardando(true);
+    const err = await onGuardar(Object.assign({}, datos, { codigo: datos.codigo.trim(), nombre: datos.nombre.trim() }));
+    setGuardando(false);
+    if (err) setError(err);
+  };
+
   return (
-    <div>
+    <form onSubmit={guardar} noValidate>
       <div className="form-grid form-grid-sede" style={{ marginBottom: 12 }}>
         <div>
-          <label style={labelStyle}>Código</label>
-          <input style={{ width: "100%", textTransform: "uppercase" }} value={datos.codigo} onChange={(e) => setDatos(Object.assign({}, datos, { codigo: e.target.value.toUpperCase() }))} placeholder="Código" maxLength={6} />
+          <label className="campo-label">Código</label>
+          <input
+            style={{ width: "100%", textTransform: "uppercase" }}
+            value={datos.codigo}
+            disabled={codigoBloqueado}
+            onChange={(e) => setDatos(Object.assign({}, datos, { codigo: e.target.value.toUpperCase() }))}
+            placeholder="Código"
+            maxLength={6}
+          />
+          {codigoBloqueado && (
+            <p className="campo-ayuda">
+              El código no se puede cambiar: {enUso} despacho(s) ya lo usan. Puedes editar el nombre y la línea.
+            </p>
+          )}
         </div>
         <div>
-          <label style={labelStyle}>Nombre de la sede</label>
+          <label className="campo-label">Nombre de la sede</label>
           <input style={{ width: "100%" }} value={datos.nombre} onChange={(e) => setDatos(Object.assign({}, datos, { nombre: e.target.value }))} placeholder="Nombre de la sede" />
         </div>
       </div>
       <div style={{ marginBottom: 20 }}>
-        <label style={labelStyle}>Línea</label>
+        <label className="campo-label">Línea</label>
         <select style={{ width: "100%" }} value={datos.linea} onChange={(e) => setDatos(Object.assign({}, datos, { linea: e.target.value }))}>
           <option value="DRYWALL">Drywall</option>
           <option value="ADITIVOS">Aditivos</option>
@@ -28,16 +59,16 @@ function FormSede({ inicial, onGuardar, onCancelar }) {
         </select>
         <p className="campo-ayuda">La línea define el color con el que se distingue la sede en reportes.</p>
       </div>
+
+      <AvisoError mensaje={error} onCerrar={() => setError("")} />
+
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onCancelar}>Cancelar</button>
-        <button
-          style={{ borderColor: "var(--brand-accent)", color: "var(--brand-accent)" }}
-          onClick={() => datos.codigo.trim() && datos.nombre.trim() && onGuardar(Object.assign({}, datos, { codigo: datos.codigo.trim(), nombre: datos.nombre.trim() }))}
-        >
-          <Icon name="check" /> Guardar sede
+        <button type="button" onClick={onCancelar}>Cancelar</button>
+        <button type="submit" disabled={guardando} style={{ borderColor: "var(--brand-accent)", color: "var(--brand-accent)" }}>
+          <Icon name="check" /> {guardando ? "Guardando..." : "Guardar sede"}
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -46,6 +77,7 @@ export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEli
   const [nuevo, setNuevo] = useState("");
   const [editando, setEditando] = useState(null);
   const [modal, setModal] = useState(null);
+  const [error, setError] = useState("");
   const { pendiente, disparar, limpiar } = useDeshacer();
   const cerrarModal = () => setModal(null);
 
@@ -68,32 +100,42 @@ export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEli
   // no queden sugerencias duplicadas por mayúsculas/minúsculas distintas.
   const estandarizar = (v) => (campoActivo === "celular" ? limpiarCelular(v) : capitalizarPalabras(v));
 
-  const agregar = () => {
+  const agregar = async () => {
     const v = estandarizar(nuevo);
     if (!v) return;
-    onAgregarValor(campoActivo, v);
     setNuevo("");
+    setError(await onAgregarValor(campoActivo, v) || "");
   };
 
-  const guardarEdicion = (valorViejo, valorNuevo) => {
-    const v = estandarizar(valorNuevo);
-    if (!v) { setEditando(null); return; }
-    onEditarValor(campoActivo, valorViejo, v);
+  // Enter y blur disparaban ambos el guardado, así que se enviaban dos
+  // actualizaciones seguidas y la segunda buscaba un valor que ya no
+  // existía. Con la bandera solo corre la primera.
+  const guardandoEdicion = useRef(false);
+  const guardarEdicion = async (valorViejo, valorNuevo) => {
+    if (guardandoEdicion.current) return;
+    guardandoEdicion.current = true;
     setEditando(null);
+    const v = estandarizar(valorNuevo);
+    if (v && v !== valorViejo) setError(await onEditarValor(campoActivo, valorViejo, v) || "");
+    guardandoEdicion.current = false;
   };
 
-  const ejecutarBorrado = () => {
+  const ejecutarBorrado = async () => {
     if (!modal) return;
-    if (modal.tipo === "confirmar-sede") {
-      const s = modal.data;
-      onEliminarSede(s.codigo);
-      disparar("Sede " + s.codigo + " eliminada.", () => onGuardarSede(null, s));
-    } else {
-      const v = modal.data;
-      onEliminarValor(campoActivo, v);
-      disparar("\"" + v + "\" eliminado.", () => onAgregarValor(campoActivo, v));
-    }
+    const actual = modal;
     cerrarModal();
+    setError("");
+    if (actual.tipo === "confirmar-sede") {
+      const s = actual.data;
+      const err = await onEliminarSede(s.codigo);
+      if (err) { setError(err); return; }
+      disparar("Sede " + s.codigo + " eliminada.", async () => setError(await onGuardarSede(null, s) || ""));
+    } else {
+      const v = actual.data;
+      const err = await onEliminarValor(campoActivo, v);
+      if (err) { setError(err); return; }
+      disparar("\"" + v + "\" eliminado.", async () => setError(await onAgregarValor(campoActivo, v) || ""));
+    }
   };
 
   return (
@@ -101,6 +143,8 @@ export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEli
       <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
         Estos valores alimentan las sugerencias al llenar un despacho. Se agregan solos al escribir uno nuevo, o los gestionas aquí.
       </p>
+
+      <AvisoError mensaje={error} onCerrar={() => setError("")} />
 
       <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
         {tabsCatalogo.map((c) => (
@@ -136,7 +180,7 @@ export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEli
                         <Icon name="lock" size={12} /> {enUso}
                       </span>
                     )}
-                    <button onClick={() => setModal({ tipo: "sede", data: s })} aria-label="Editar sede" style={{ width: 28, height: 28, padding: 0 }}><Icon name="edit" size={13} /></button>
+                    <button onClick={() => setModal({ tipo: "sede", data: s, enUso })} aria-label="Editar sede" style={{ width: 28, height: 28, padding: 0 }}><Icon name="edit" size={13} /></button>
                     <button onClick={() => setModal({ tipo: "confirmar-sede", data: s, enUso })} aria-label="Eliminar sede" style={{ width: 28, height: 28, padding: 0 }}><Icon name="trash" size={13} /></button>
                   </div>
                 );
@@ -173,7 +217,13 @@ export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEli
         <Modal title={modal.data.codigo ? "Editar sede" : "Nueva sede"} onClose={cerrarModal}>
           <FormSede
             inicial={modal.data.codigo ? modal.data : null}
-            onGuardar={(s) => { onGuardarSede(modal.data.codigo || null, s); cerrarModal(); }}
+            enUso={modal.enUso || 0}
+            onGuardar={async (s) => {
+              const err = await onGuardarSede(modal.data.codigo || null, s);
+              if (err) return err;
+              cerrarModal();
+              return "";
+            }}
             onCancelar={cerrarModal}
           />
         </Modal>

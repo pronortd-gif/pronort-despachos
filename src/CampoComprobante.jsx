@@ -9,7 +9,6 @@ function ParDocumento({ titulo, valor, onCambiarValor, ejemploSerie, ayuda }) {
   const inicial = partirComprobante(valor);
   const [serie, setSerie] = useState(inicial.serie);
   const [numero, setNumero] = useState(inicial.numero);
-  const labelStyle = { fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 };
 
   const cambiarSerie = (v) => {
     const limpio = v.toUpperCase();
@@ -23,7 +22,7 @@ function ParDocumento({ titulo, valor, onCambiarValor, ejemploSerie, ayuda }) {
 
   return (
     <div>
-      <label style={labelStyle}>{titulo}</label>
+      <label className="campo-label">{titulo}</label>
       <div className="form-grid form-grid-comprobante">
         <input
           value={serie}

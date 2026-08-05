@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
-import { uid, seTraslapan, sumarMinutos, etiquetaBloque, a12Horas, a24Horas } from "./constants";
-import { Icon } from "./ui";
+import { seTraslapan, sumarMinutos, etiquetaBloque, a12Horas, a24Horas } from "./constants";
+import { Icon, AvisoError } from "./ui";
 
 function siguienteNombre(nombre) {
   const m = (nombre || "").match(/^(.*?)(\d+)$/);
@@ -27,7 +27,7 @@ export function SelectorHora12({ valor, onCambiar, etiqueta, error }) {
   const estiloError = error ? { borderColor: "var(--brand-accent)" } : null;
   return (
     <div>
-      <label style={{ fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>{etiqueta}</label>
+      <label className="campo-label">{etiqueta}</label>
       <div style={{ display: "flex", gap: 6 }}>
         <select aria-label={etiqueta + ": hora"} value={hora12} onChange={(e) => cambiar(e.target.value, minutoRedondeado, ampm)} style={Object.assign({ width: 66 }, estiloError)}>
           {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => <option key={h} value={h}>{h}</option>)}
@@ -48,7 +48,8 @@ export function FormBloque({ inicial, onGuardar, onGuardarYSeguir, onCancelar, b
   const [datos, setDatos] = useState(inicial || BLOQUE_VACIO);
   const [intentoGuardar, setIntentoGuardar] = useState(false);
   const [creados, setCreados] = useState(0);
-  const labelStyle = { fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 };
+  const [guardando, setGuardando] = useState(false);
+  const [errorGuardado, setErrorGuardado] = useState("");
 
   const cambiarCampo = (clave, valorNuevo) => setDatos((prev) => Object.assign({}, prev, { [clave]: valorNuevo }));
 
@@ -62,14 +63,28 @@ export function FormBloque({ inicial, onGuardar, onGuardarYSeguir, onCancelar, b
 
   const puedeGuardar = datos.inicio && datos.fin && !horaInvalida && !traslape;
 
-  const confirmarGuardado = () => {
+  // Un horario nuevo va sin id: el UUID lo genera la base de datos.
+  const confirmarGuardado = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (guardando) return;
     if (!puedeGuardar) { setIntentoGuardar(true); return; }
-    onGuardar(Object.assign({}, datos, { id: inicial ? inicial.id : uid() }));
+    setErrorGuardado("");
+    setGuardando(true);
+    const err = await onGuardar(Object.assign({}, datos, { id: inicial ? inicial.id : null }));
+    setGuardando(false);
+    if (err) setErrorGuardado(err);
   };
 
-  const guardarYSeguir = () => {
+  const guardarYSeguir = async () => {
+    if (guardando) return;
     if (!puedeGuardar) { setIntentoGuardar(true); return; }
-    onGuardarYSeguir(Object.assign({}, datos, { id: uid() }));
+    setErrorGuardado("");
+    setGuardando(true);
+    const err = await onGuardarYSeguir(Object.assign({}, datos, { id: null }));
+    setGuardando(false);
+    // Solo se avanza al horario siguiente si el anterior se guardó de
+    // verdad; si no, el formulario se limpiaría perdiendo lo escrito.
+    if (err) { setErrorGuardado(err); return; }
     const duracionMin =
       (Number(datos.fin.split(":")[0]) * 60 + Number(datos.fin.split(":")[1])) -
       (Number(datos.inicio.split(":")[0]) * 60 + Number(datos.inicio.split(":")[1]));
@@ -85,7 +100,7 @@ export function FormBloque({ inicial, onGuardar, onGuardarYSeguir, onCancelar, b
   const bordeError = Boolean(horaInvalida || traslape);
 
   return (
-    <div>
+    <form onSubmit={confirmarGuardado} noValidate>
       {creados > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--ok-bg)", borderRadius: "var(--radius)", padding: "8px 10px", marginBottom: 12 }}>
           <Icon name="check" size={14} />
@@ -107,16 +122,20 @@ export function FormBloque({ inicial, onGuardar, onGuardarYSeguir, onCancelar, b
       )}
 
       <div style={{ marginBottom: 20 }}>
-        <label style={labelStyle}>Nombre (opcional)</label>
+        <label className="campo-label">Nombre (opcional)</label>
         <input style={{ width: "100%" }} value={datos.nombre || ""} onChange={(e) => cambiarCampo("nombre", e.target.value)} placeholder="Ej. Ruta norte, camión 2..." />
         <p className="campo-ayuda">Si lo dejas vacío, el horario se identifica por su hora.</p>
       </div>
 
+      <AvisoError mensaje={errorGuardado} onCerrar={() => setErrorGuardado("")} />
+
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
-        <button onClick={onCancelar}>{creados > 0 ? "Listo" : "Cancelar"}</button>
-        {!inicial && <button onClick={guardarYSeguir}><Icon name="plus" size={14} /> Guardar y crear otro</button>}
-        <button style={{ borderColor: "var(--brand-accent)", color: "var(--brand-accent)" }} onClick={confirmarGuardado}><Icon name="check" /> Guardar horario</button>
+        <button type="button" onClick={onCancelar}>{creados > 0 ? "Listo" : "Cancelar"}</button>
+        {!inicial && <button type="button" disabled={guardando} onClick={guardarYSeguir}><Icon name="plus" size={14} /> Guardar y crear otro</button>}
+        <button type="submit" disabled={guardando} style={{ borderColor: "var(--brand-accent)", color: "var(--brand-accent)" }}>
+          <Icon name="check" /> {guardando ? "Guardando..." : "Guardar horario"}
+        </button>
       </div>
-    </div>
+    </form>
   );
 }

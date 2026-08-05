@@ -1,65 +1,37 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { TIPOS, BRAND, hoy, diasAtras, sedeLabel, colorLinea, sedeLinea, bandasHorarias, bandaDeHora, tituloDespacho, HORA_INICIO_JORNADA, HORA_FIN_JORNADA } from "./constants";
-import { Icon, Modal } from "./ui";
-
-const OPERACIONES = { contar: "Contar registros", sumar: "Sumar monto", promediar: "Promediar monto", porcentaje: "% del total filtrado" };
-const CAMPOS_FILTRO = { tipo: "Tipo", tienda: "Sede origen", sedeDestino: "Sede destino", cobra: "¿Se cobra?", estado: "Estado" };
-
-function calcularMetrica(m, despachos) {
-  let base = despachos;
-  if (m.filtroCampo && m.filtroValor !== "" && m.filtroValor != null) {
-    base = base.filter((d) => {
-      if (m.filtroCampo === "cobra") return String(Boolean(d.cobra)) === m.filtroValor;
-      return String(d[m.filtroCampo] || "") === m.filtroValor;
-    });
-  }
-  if (m.operacion === "contar") return base.length;
-  if (m.operacion === "sumar") return base.reduce((acc, d) => acc + (Number(d.monto) || 0), 0);
-  if (m.operacion === "promediar") {
-    const conMonto = base.filter((d) => d.monto !== "" && d.monto != null && !isNaN(Number(d.monto)));
-    if (conMonto.length === 0) return 0;
-    return conMonto.reduce((acc, d) => acc + Number(d.monto), 0) / conMonto.length;
-  }
-  if (m.operacion === "porcentaje") {
-    if (despachos.length === 0) return 0;
-    return (base.length / despachos.length) * 100;
-  }
-  return 0;
-}
-function formatoMetrica(valor, operacion) {
-  if (operacion === "sumar" || operacion === "promediar") return "S/ " + valor.toFixed(2);
-  if (operacion === "porcentaje") return valor.toFixed(1) + "%";
-  return String(Math.round(valor));
-}
+import { Icon, Modal, AvisoError } from "./ui";
+import { OPERACIONES, CAMPOS_FILTRO, calcularMetrica, formatoMetrica } from "./metricas";
 
 function FormMetrica({ onGuardar, onCancelar, sedes }) {
   const [m, setM] = useState({ nombre: "", operacion: "contar", filtroCampo: "", filtroValor: "" });
-  const labelStyle = { fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 };
   const cambiar = (clave, valor) => setM((prev) => Object.assign({}, prev, { [clave]: valor }));
 
   const opcionesValor = () => {
     if (m.filtroCampo === "tipo") return Object.keys(TIPOS).map((k) => ({ v: k, l: TIPOS[k].label }));
     if (m.filtroCampo === "tienda" || m.filtroCampo === "sedeDestino") return sedes.map((s) => ({ v: s.codigo, l: s.codigo + " · " + s.nombre }));
     if (m.filtroCampo === "cobra") return [{ v: "true", l: "Sí cobra" }, { v: "false", l: "No cobra" }];
-    if (m.filtroCampo === "estado") return [{ v: "pendiente", l: "Pendiente" }, { v: "entregado", l: "Entregado" }];
+    // Los 3 estados reales. Faltaba "No entregado", así que no se podía
+    // crear la métrica más útil de todas: cuántas entregas fallaron.
+    if (m.filtroCampo === "estado") return [{ v: "pendiente", l: "Pendiente" }, { v: "entregado", l: "Entregado" }, { v: "no_entregado", l: "No entregado" }];
     return [];
   };
 
   return (
     <div>
       <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>Nombre de la métrica</label>
+        <label className="campo-label">Nombre de la métrica</label>
         <input style={{ width: "100%" }} value={m.nombre} onChange={(e) => cambiar("nombre", e.target.value)} placeholder="Nombre descriptivo de la métrica" />
       </div>
       <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>Operación</label>
+        <label className="campo-label">Operación</label>
         <select style={{ width: "100%" }} value={m.operacion} onChange={(e) => cambiar("operacion", e.target.value)}>
           {Object.keys(OPERACIONES).map((k) => <option key={k} value={k}>{OPERACIONES[k]}</option>)}
         </select>
       </div>
       <div className="form-grid form-grid-2" style={{ marginBottom: 20 }}>
         <div>
-          <label style={labelStyle}>Filtrar por (opcional)</label>
+          <label className="campo-label">Filtrar por (opcional)</label>
           <select style={{ width: "100%" }} value={m.filtroCampo} onChange={(e) => setM((prev) => Object.assign({}, prev, { filtroCampo: e.target.value, filtroValor: "" }))}>
             <option value="">Sin filtro</option>
             {Object.keys(CAMPOS_FILTRO).map((k) => <option key={k} value={k}>{CAMPOS_FILTRO[k]}</option>)}
@@ -67,7 +39,7 @@ function FormMetrica({ onGuardar, onCancelar, sedes }) {
         </div>
         {m.filtroCampo && (
           <div>
-            <label style={labelStyle}>Valor</label>
+            <label className="campo-label">Valor</label>
             <select style={{ width: "100%" }} value={m.filtroValor} onChange={(e) => cambiar("filtroValor", e.target.value)}>
               <option value="">Selecciona...</option>
               {opcionesValor().map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
@@ -93,14 +65,25 @@ const RANGOS = {
   custom: { label: "Rango personalizado", dias: "custom" },
 };
 
-export function VistaReportes({ despachos, metricas, onAgregarMetrica, onEliminarMetrica, sedes, mapaHorarios, oscuro }) {
+export function VistaReportes({
+  despachos, metricas, onAgregarMetrica, onEliminarMetrica, sedes, mapaHorarios, oscuro,
+  historicoCompleto, cargandoHistorico, onCargarHistorico,
+}) {
   const [rango, setRango] = useState("mes");
   const [desde, setDesde] = useState(diasAtras(30));
   const [hasta, setHasta] = useState(hoy());
   const [tipoEnCalor, setTipoEnCalor] = useState("");
   const [vistaCalor, setVistaCalor] = useState("salida"); // "salida" | "ocupacion"
   const [formMetrica, setFormMetrica] = useState(false);
+  const [error, setError] = useState("");
   const canvasRef = useRef(null);
+
+  // Elegir "Todo el histórico" tiene que traer de verdad todo: si no, el
+  // rango diría "todo" pero seguiría mostrando solo los últimos 90 días.
+  const elegirRango = (k) => {
+    setRango(k);
+    if (k === "todo" && !historicoCompleto) onCargarHistorico();
+  };
 
   const despachosFiltrados = useMemo(() => {
     if (rango === "todo") return despachos;
@@ -282,13 +265,26 @@ export function VistaReportes({ despachos, metricas, onAgregarMetrica, onElimina
   const noEntregadosTotal = despachosFiltrados.filter((d) => d.estado === "no_entregado").length;
   const pctEntregado = despachosFiltrados.length ? (entregadosTotal / despachosFiltrados.length) * 100 : 0;
 
+  // La dependencia es el CONTENIDO del gráfico, no el número de
+  // despachos: antes se usaba despachosFiltrados.length, así que si se
+  // corregía la fecha de un despacho (mismo total, distinta
+  // distribución) el gráfico se quedaba mostrando lo anterior.
+  const datosGrafico = fechasOrdenadas.map((f) => f + ":" + porDia[f]).join(",");
+
   useEffect(() => {
-    function renderChart() {
-      if (!canvasRef.current || !window.Chart) return;
-      if (canvasRef.current._chart) canvasRef.current._chart.destroy();
-      canvasRef.current._chart = new window.Chart(canvasRef.current, {
+    let vivo = true;
+    let grafico = null;
+    const lienzo = canvasRef.current;
+
+    // Chart.js se carga bajo demanda (import dinámico), no desde un CDN
+    // externo en tiempo de ejecución.
+    import("chart.js/auto").then(({ default: Chart }) => {
+      if (!vivo || !lienzo) return;
+      const etiquetas = datosGrafico ? datosGrafico.split(",").map((p) => p.slice(0, p.lastIndexOf(":"))) : [];
+      const valores = datosGrafico ? datosGrafico.split(",").map((p) => Number(p.slice(p.lastIndexOf(":") + 1))) : [];
+      grafico = new Chart(lienzo, {
         type: "bar",
-        data: { labels: fechasOrdenadas, datasets: [{ label: "Despachos por día", data: fechasOrdenadas.map((f) => porDia[f]), backgroundColor: oscuro ? "#FF6B8F" : BRAND.rojo, borderRadius: 4 }] },
+        data: { labels: etiquetas, datasets: [{ label: "Despachos por día", data: valores, backgroundColor: oscuro ? "#FF6B8F" : BRAND.rojo, borderRadius: 4 }] },
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: { legend: { display: false } },
@@ -298,24 +294,41 @@ export function VistaReportes({ despachos, metricas, onAgregarMetrica, onElimina
           },
         },
       });
-    }
-    if (!window.Chart) {
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js";
-      s.onload = renderChart;
-      document.body.appendChild(s);
-    } else renderChart();
-  }, [despachosFiltrados.length, rango, desde, hasta, oscuro]);
+    }).catch((e) => {
+      console.error("[Pronort] No se pudo cargar el gráfico:", e);
+      if (vivo) setError("No se pudo cargar el gráfico de tendencia.");
+    });
+
+    // Sin este destroy, cada vez que se salía y volvía a Reportes
+    // quedaba una instancia de Chart.js viva escuchando eventos.
+    return () => { vivo = false; if (grafico) grafico.destroy(); };
+  }, [datosGrafico, oscuro]);
 
   return (
     <div className="view-in">
       <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
         {Object.keys(RANGOS).map((k) => (
-          <button key={k} onClick={() => setRango(k)} style={{ fontSize: 13, height: 34, padding: "0 12px", borderColor: rango === k ? "var(--brand-accent)" : "var(--border)", color: rango === k ? "var(--brand-accent)" : "var(--text-secondary)" }}>
+          <button key={k} onClick={() => elegirRango(k)} style={{ fontSize: 13, height: 34, padding: "0 12px", borderColor: rango === k ? "var(--brand-accent)" : "var(--border)", color: rango === k ? "var(--brand-accent)" : "var(--text-secondary)" }}>
             {RANGOS[k].label}
           </button>
         ))}
       </div>
+
+      <AvisoError mensaje={error} onCerrar={() => setError("")} />
+
+      {/* Un rango personalizado que empiece antes de los 90 días
+          mostraría menos de lo que debería sin avisar. */}
+      {!historicoCompleto && (rango === "todo" || rango === "custom") && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--surface-1)", borderRadius: "var(--radius)", padding: "8px 12px", marginBottom: 10 }}>
+          <Icon name="clock" size={14} />
+          <span style={{ flex: 1, fontSize: 12.5, color: "var(--text-secondary)" }}>
+            {cargandoHistorico ? "Trayendo el histórico completo..." : "Solo hay cargados los últimos 90 días. Los datos anteriores no están incluidos en estos números."}
+          </span>
+          <button onClick={onCargarHistorico} disabled={cargandoHistorico} style={{ fontSize: 12, height: 30, padding: "0 10px" }}>
+            {cargandoHistorico ? "Cargando..." : "Cargar todo el histórico"}
+          </button>
+        </div>
+      )}
       {rango === "custom" && (
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
           <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
@@ -361,7 +374,7 @@ export function VistaReportes({ despachos, metricas, onAgregarMetrica, onElimina
         </div>
         {metricas.map((m, idx) => (
           <div key={m.id} className="stat-card" style={{ position: "relative", animation: "statIn 0.3s cubic-bezier(0.16,1,0.3,1) " + (0.12 + idx * 0.03) + "s backwards" }}>
-            <button onClick={() => onEliminarMetrica(m.id)} aria-label="Eliminar métrica" style={{ position: "absolute", top: 8, right: 8, width: 22, height: 22, padding: 0, border: "none" }}><Icon name="x" size={13} /></button>
+            <button onClick={async () => setError(await onEliminarMetrica(m.id) || "")} aria-label="Eliminar métrica" style={{ position: "absolute", top: 8, right: 8, width: 22, height: 22, padding: 0, border: "none" }}><Icon name="x" size={13} /></button>
             <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 4px", paddingRight: 18 }}>{m.nombre}</p>
             <p style={{ fontSize: 24, fontWeight: 500, margin: 0, color: "var(--brand-accent)" }}>{formatoMetrica(calcularMetrica(m, despachosFiltrados), m.operacion)}</p>
           </div>
@@ -537,7 +550,15 @@ export function VistaReportes({ despachos, metricas, onAgregarMetrica, onElimina
 
       {formMetrica && (
         <Modal title="Nueva métrica" onClose={() => setFormMetrica(false)}>
-          <FormMetrica onGuardar={(m) => { onAgregarMetrica(m); setFormMetrica(false); }} onCancelar={() => setFormMetrica(false)} sedes={sedes} />
+          <FormMetrica
+            onGuardar={async (m) => {
+              const err = await onAgregarMetrica(m);
+              if (err) { setError(err); return; }
+              setFormMetrica(false);
+            }}
+            onCancelar={() => setFormMetrica(false)}
+            sedes={sedes}
+          />
         </Modal>
       )}
     </div>

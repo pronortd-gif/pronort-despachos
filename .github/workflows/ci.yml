@@ -1,0 +1,37 @@
+name: CI
+
+# Vercel ya construye en cada push, pero no bloquea nada: si el build
+# falla, el despliegue simplemente no se actualiza y hay que darse
+# cuenta a mano. Esto avisa en el propio commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Linter
+        run: npm run lint
+
+      - name: Pruebas
+        run: npm test
+
+      - name: Build de producción
+        run: npm run build
+        env:
+          # Valores de mentira: el build solo necesita que las variables
+          # existan, no conecta con Supabase en tiempo de compilación.
+          VITE_SUPABASE_URL: https://ejemplo.supabase.co
+          VITE_SUPABASE_ANON_KEY: clave-de-prueba

@@ -7,7 +7,6 @@ export function Login() {
   const [clave, setClave] = useState("");
   const [error, setError] = useState("");
   const [entrando, setEntrando] = useState(false);
-  const labelStyle = { fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 };
 
   const entrar = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
@@ -27,7 +26,9 @@ export function Login() {
 
   return (
     <div className="login-wrap">
-      <div className="login-card">
+      {/* <form> de verdad: así Enter envía sin handlers a mano y el
+          gestor de contraseñas reconoce el par usuario/clave. */}
+      <form className="login-card" onSubmit={entrar} noValidate>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
           <LogoPronort alto={30} />
         </div>
@@ -37,21 +38,19 @@ export function Login() {
         </p>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={labelStyle} htmlFor="correo">Correo</label>
+          <label className="campo-label" htmlFor="correo">Correo</label>
           <input
-            id="correo" type="email" autoComplete="username" style={{ width: "100%" }}
+            id="correo" name="correo" type="email" autoComplete="username" style={{ width: "100%" }}
             value={correo} onChange={(e) => setCorreo(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && entrar()}
             placeholder="tucorreo@empresa.com"
           />
         </div>
 
         <div style={{ marginBottom: 18 }}>
-          <label style={labelStyle} htmlFor="clave">Contraseña</label>
+          <label className="campo-label" htmlFor="clave">Contraseña</label>
           <input
-            id="clave" type="password" autoComplete="current-password" style={{ width: "100%" }}
+            id="clave" name="clave" type="password" autoComplete="current-password" style={{ width: "100%" }}
             value={clave} onChange={(e) => setClave(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && entrar()}
           />
         </div>
 
@@ -63,7 +62,7 @@ export function Login() {
         )}
 
         <button
-          onClick={entrar}
+          type="submit"
           disabled={entrando}
           style={{ width: "100%", borderColor: "var(--brand-accent)", color: "var(--brand-accent)" }}
         >
@@ -73,7 +72,7 @@ export function Login() {
         <p className="campo-ayuda" style={{ textAlign: "center", marginTop: 14 }}>
           Si olvidaste tu contraseña, pídele a quien administra la app que la restablezca.
         </p>
-      </div>
+      </form>
     </div>
   );
 }

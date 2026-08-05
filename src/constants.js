@@ -21,7 +21,17 @@ export function colorLinea(linea, oscuro) {
 export const DIAS_CORTOS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 export const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
-export function hoy() { return new Date().toISOString().slice(0, 10); }
+// Todas las fechas de la app son "YYYY-MM-DD" en la HORA LOCAL del
+// dispositivo, nunca en UTC. Con toISOString() (que siempre es UTC) un
+// despacho registrado a las 8 p.m. en Perú (UTC-5) caía en el día
+// siguiente: el contador "N hoy", el recuadro del día actual en el
+// calendario y el rango "Hoy" de Reportes apuntaban todos al día
+// equivocado durante las últimas 5 horas de cada jornada.
+export function fechaLocalISO(dt) {
+  return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+}
+
+export function hoy() { return fechaLocalISO(new Date()); }
 export function uid() { return Math.random().toString(36).slice(2, 10); }
 
 export function formatFechaLarga(iso) {
@@ -33,13 +43,12 @@ export function formatFechaLarga(iso) {
 export function diasAtras(n) {
   const dt = new Date();
   dt.setDate(dt.getDate() - n);
-  return dt.toISOString().slice(0, 10);
+  return fechaLocalISO(dt);
 }
 
 export function fechaMasDias(iso, n) {
   const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(y, m - 1, d + n);
-  return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+  return fechaLocalISO(new Date(y, m - 1, d + n));
 }
 
 export function sumarMinutos(hora, minutos) {
@@ -138,6 +147,19 @@ export function mostrarComprobante(texto) {
 }
 
 export const CAPACIDAD_BLOQUE = 5;
+
+// Orden estable dentro de un horario: primero por "orden" manual y, si
+// empatan (o nunca se reordenaron), por fecha de creación, para que el
+// orden no salte solo entre recargas. Vive aquí porque la vista del día
+// y la imagen exportable deben ordenar EXACTAMENTE igual: si divergen,
+// la imagen que se manda por WhatsApp no coincide con lo que el
+// despachador tiene en pantalla.
+export function ordenarDespachos(items) {
+  return items.slice().sort((a, b) => {
+    if ((a.orden || 0) !== (b.orden || 0)) return (a.orden || 0) - (b.orden || 0);
+    return (a.creadoEn || "").localeCompare(b.creadoEn || "");
+  });
+}
 
 // ---- Estandarización de texto al salir de un campo ----
 // Nombres, direcciones: cada palabra capitalizada, sin importar cómo

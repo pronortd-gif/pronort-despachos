@@ -20,7 +20,6 @@ export function useDeshacer() {
 export function CampoSugerido({ label, valor, onCambiarValor, sugerencias, placeholder, ariaLabel, ayuda, tipo }) {
   const [abierto, setAbierto] = useState(false);
   const wrapRef = useRef(null);
-  const labelStyle = { fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 };
 
   const estandarizar = (texto) => {
     if (tipo === "nombre") return capitalizarPalabras(texto);
@@ -45,7 +44,7 @@ export function CampoSugerido({ label, valor, onCambiarValor, sugerencias, place
 
   return (
     <div ref={wrapRef} style={{ position: "relative" }}>
-      {label ? <label style={labelStyle}>{label}</label> : null}
+      {label ? <label className="campo-label">{label}</label> : null}
       <input
         style={{ width: "100%" }}
         value={valor}

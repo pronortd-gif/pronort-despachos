@@ -1,15 +1,5 @@
 import React from "react";
-import { TIPOS, BRAND, sedeLabel, formatFechaLarga, horaLegible, tituloConCelular, personasConCelular, mostrarComprobante } from "./constants";
-
-// Mismo orden que en la vista del día: por "orden" manual y, si
-// empatan, por fecha de creación — así la imagen sale en el mismo
-// orden en que se organizó el reparto.
-function ordenar(items) {
-  return items.slice().sort((a, b) => {
-    if ((a.orden || 0) !== (b.orden || 0)) return (a.orden || 0) - (b.orden || 0);
-    return (a.creadoEn || "").localeCompare(b.creadoEn || "");
-  });
-}
+import { TIPOS, BRAND, sedeLabel, formatFechaLarga, horaLegible, tituloConCelular, personasConCelular, mostrarComprobante, ordenarDespachos as ordenar } from "./constants";
 
 export function VistaExportable({ fecha, bloques, despachos, sedes }) {
   const porBloque = bloques

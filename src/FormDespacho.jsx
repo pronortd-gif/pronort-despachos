@@ -1,13 +1,12 @@
 import React, { useState, useMemo } from "react";
-import { uid, TIPOS, CONFIG_TIPO, sedeLabel, esLinkOCoordenadas, convertirCoordenadasALink, seTraslapan, sumarMinutos, capitalizarPalabras, limpiarCelular } from "./constants";
-import { Icon } from "./ui";
+import { TIPOS, CONFIG_TIPO, esLinkOCoordenadas, convertirCoordenadasALink, seTraslapan, sumarMinutos, capitalizarPalabras, limpiarCelular } from "./constants";
+import { Icon, AvisoError } from "./ui";
 import { CampoSugerido, CampoPersona } from "./campos";
 import { CampoComprobante } from "./CampoComprobante";
 import { SelectorTipo, SelectorHorario } from "./selectores";
 import { SelectorHora12 } from "./FormBloque";
 
 function CampoDireccion({ direccion, mapsUrl, onCambiarDireccion, onCambiarMaps, sugerencias, etiqueta }) {
-  const labelStyle = { fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 };
   const [ultimoPegado, setUltimoPegado] = useState(Boolean(mapsUrl));
 
   const manejarCambio = (valorNuevo) => {
@@ -24,11 +23,13 @@ function CampoDireccion({ direccion, mapsUrl, onCambiarDireccion, onCambiarMaps,
   if (mapsUrl && ultimoPegado) {
     return (
       <div>
-        <label style={labelStyle}>{etiqueta}</label>
+        <label className="campo-label">{etiqueta}</label>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--surface-1)", borderRadius: "var(--radius)", fontSize: 13 }}>
           <Icon name="map-pin" size={15} />
-          <a href={mapsUrl} style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mapsUrl}</a>
-          <button onClick={() => { onCambiarMaps(""); setUltimoPegado(false); }} aria-label="Quitar link" style={{ width: 26, height: 26, padding: 0, border: "none" }}><Icon name="x" size={13} /></button>
+          {/* En pestaña nueva a propósito: si el link navegara en la misma
+              pestaña, se perdería todo el despacho a medio escribir. */}
+          <a href={mapsUrl} target="_blank" rel="noopener noreferrer" style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mapsUrl}</a>
+          <button type="button" onClick={() => { onCambiarMaps(""); setUltimoPegado(false); }} aria-label="Quitar link" style={{ width: 26, height: 26, padding: 0, border: "none" }}><Icon name="x" size={13} /></button>
         </div>
         <p className="campo-ayuda">Link detectado automáticamente.</p>
         <input style={{ width: "100%", marginTop: 6 }} value={direccion} onChange={(e) => onCambiarDireccion(e.target.value)} placeholder="Referencia adicional (opcional)" />
@@ -41,7 +42,7 @@ function CampoDireccion({ direccion, mapsUrl, onCambiarDireccion, onCambiarMaps,
       <CampoSugerido label={etiqueta} valor={direccion} onCambiarValor={manejarCambio} sugerencias={sugerencias} placeholder="Dirección, o pega un link de Google Maps" tipo="nombre" />
       {mapsUrl && (
         <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-          <Icon name="map-pin" size={13} /> Link guardado: <a href={mapsUrl}>{mapsUrl}</a>
+          <Icon name="map-pin" size={13} /> Link guardado: <a href={mapsUrl} target="_blank" rel="noopener noreferrer">{mapsUrl}</a>
         </p>
       )}
     </div>
@@ -68,7 +69,7 @@ function CrearHorarioInline({ bloques, onCrear, onCancelar }) {
     setError("");
     const { bloque, error: err } = await onCrear(datos);
     setCreando(false);
-    if (err || !bloque) { setError("No se pudo crear el horario. Intenta de nuevo."); return; }
+    if (err || !bloque) { setError(err || "No se pudo crear el horario. Intenta de nuevo."); return; }
     onCancelar(bloque.id);
   };
 
@@ -111,11 +112,12 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
     return Object.assign({}, DESPACHO_VACIO, { bloqueId: idPorDefecto });
   });
   const [intentoGuardar, setIntentoGuardar] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [errorGuardado, setErrorGuardado] = useState("");
 
   const cambiarCampo = (clave, valorNuevo) => setDatos((prev) => Object.assign({}, prev, { [clave]: valorNuevo }));
 
   const cfg = CONFIG_TIPO[datos.tipo] || CONFIG_TIPO.VENTA;
-  const labelStyle = { fontSize: 13, color: "var(--text-secondary)", display: "block", marginBottom: 4 };
   const row = { marginBottom: 14 };
 
   // Al cambiar de tipo se limpian los campos que no aplican, para no
@@ -169,8 +171,11 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
     });
   }, [datos, fecha, todosDespachos, inicial]);
 
-  const confirmarGuardado = () => {
+  const confirmarGuardado = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (guardando) return;
     if (hayErrores) { setIntentoGuardar(true); return; }
+    setErrorGuardado("");
     // Un despacho nuevo va al final del horario al que pertenece, no
     // con "orden" en 0 por defecto: si ese horario ya se había
     // reordenado antes, un valor 0 lo hacía saltar al inicio de la
@@ -195,20 +200,27 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
       celular1: limpiarCelular(datos.celular1),
       celular2: limpiarCelular(datos.celular2),
     });
-    onGuardar(Object.assign({}, datosEstandarizados, { fecha: fecha, id: inicial ? inicial.id : uid(), orden: ordenFinal }));
+    // Sin id cuando es nuevo: el UUID lo genera la base de datos. Antes
+    // se inventaba uno con uid() que la base descartaba igual.
+    setGuardando(true);
+    const err = await onGuardar(Object.assign({}, datosEstandarizados, { fecha: fecha, id: inicial ? inicial.id : null, orden: ordenFinal }));
+    setGuardando(false);
+    // Si falló, el modal sigue abierto con todo lo escrito: lo peor que
+    // podía pasar era cerrarlo y perder el despacho sin decir nada.
+    if (err) setErrorGuardado(err);
   };
 
   const borde = (hayError) => (intentoGuardar && hayError ? { borderColor: "var(--brand-accent)" } : null);
 
   return (
-    <div>
+    <form onSubmit={confirmarGuardado} noValidate>
       <div style={row}>
-        <label style={labelStyle}>Tipo de despacho</label>
+        <label className="campo-label">Tipo de despacho</label>
         <SelectorTipo tipoSeleccionado={datos.tipo} onSeleccionarTipo={cambiarTipo} oscuro={oscuro} />
       </div>
 
       <div style={row}>
-        <label style={labelStyle}>Horario de salida</label>
+        <label className="campo-label">Horario de salida</label>
         <SelectorHorario
           bloques={bloques}
           bloqueIdSeleccionado={datos.bloqueId}
@@ -235,7 +247,7 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
 
       {/* --- Sede: su significado cambia según el tipo --- */}
       <div style={row}>
-        <label style={labelStyle}>{cfg.sedeLabel}</label>
+        <label className="campo-label">{cfg.sedeLabel}</label>
         <select
           style={Object.assign({ width: "100%" }, borde(errores.tienda))}
           value={datos.tienda}
@@ -251,7 +263,7 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
       {/* --- Movimiento: sede de destino --- */}
       {cfg.usaDestino && (
         <div style={row}>
-          <label style={labelStyle}>Sede destino</label>
+          <label className="campo-label">Sede destino</label>
           <select
             style={Object.assign({ width: "100%" }, borde(errores.destino))}
             value={datos.sedeDestino}
@@ -395,7 +407,7 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
           </div>
           {datos.cobra && (
             <div>
-              <label style={labelStyle}>Monto (S/)</label>
+              <label className="campo-label">Monto (S/)</label>
               <input type="number" min="0" step="0.1" value={datos.monto} onChange={(e) => cambiarCampo("monto", e.target.value)} style={{ width: "100%" }} />
             </div>
           )}
@@ -415,12 +427,14 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
         </div>
       )}
 
+      <AvisoError mensaje={errorGuardado} onCerrar={() => setErrorGuardado("")} />
+
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={onCancelar}>Cancelar</button>
-        <button style={{ borderColor: "var(--brand-accent)", color: "var(--brand-accent)" }} onClick={confirmarGuardado}>
-          <Icon name="check" /> Guardar despacho
+        <button type="button" onClick={onCancelar}>Cancelar</button>
+        <button type="submit" disabled={guardando} style={{ borderColor: "var(--brand-accent)", color: "var(--brand-accent)" }}>
+          <Icon name="check" /> {guardando ? "Guardando..." : "Guardar despacho"}
         </button>
       </div>
-    </div>
+    </form>
   );
 }

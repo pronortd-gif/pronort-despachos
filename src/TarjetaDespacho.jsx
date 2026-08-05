@@ -53,12 +53,12 @@ export function TarjetaDespacho({ despacho, onEditar, onEliminar, onCambiarEstad
           {despacho.direccion && (
             <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>
               <Icon name="map-pin" size={13} /> {despacho.direccion}
-              {despacho.mapsUrl && <a href={despacho.mapsUrl} style={{ marginLeft: 6 }}><Icon name="external-link" size={12} /></a>}
+              {despacho.mapsUrl && <a href={despacho.mapsUrl} target="_blank" rel="noopener noreferrer" aria-label="Abrir ubicación en Google Maps" style={{ marginLeft: 6 }}><Icon name="external-link" size={12} /></a>}
             </p>
           )}
           {!despacho.direccion && despacho.mapsUrl && (
             <p style={{ margin: "4px 0 0", fontSize: 12 }}>
-              <a href={despacho.mapsUrl}><Icon name="map-pin" size={13} /> Ver ubicación</a>
+              <a href={despacho.mapsUrl} target="_blank" rel="noopener noreferrer"><Icon name="map-pin" size={13} /> Ver ubicación</a>
             </p>
           )}
 
