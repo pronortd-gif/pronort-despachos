@@ -13,7 +13,7 @@ import { diasAtras } from "./constants";
 // agotar los resultados.
 const TAMANO_PAGINA = 1000;
 
-async function traerTodo(construirConsulta) {
+export async function traerTodo(construirConsulta) {
   const filas = [];
   for (let desde = 0; ; desde += TAMANO_PAGINA) {
     const { data, error } = await construirConsulta().range(desde, desde + TAMANO_PAGINA - 1);
@@ -173,7 +173,10 @@ export function useBloquesDB() {
 }
 
 // ---------------- Despachos ----------------
-function despachoDbToApp(f) {
+// Exportadas para poder probarlas: son las que deciden en qué COLUMNA
+// acaba cada persona según el tipo de despacho, y un error ahí no se
+// nota en pantalla — se nota meses después, en la base de datos.
+export function despachoDbToApp(f) {
   const base = {
     id: f.id,
     fecha: f.fecha,
@@ -212,7 +215,7 @@ function despachoDbToApp(f) {
   return base;
 }
 
-function despachoAppToDb(d) {
+export function despachoAppToDb(d) {
   const fila = {
     fecha: d.fecha,
     bloque_id: d.bloqueId || null,
