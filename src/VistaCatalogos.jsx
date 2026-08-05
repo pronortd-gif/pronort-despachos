@@ -139,7 +139,7 @@ export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEli
   };
 
   return (
-    <div className="view-in">
+    <div>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
         Estos valores alimentan las sugerencias al llenar un despacho. Se agregan solos al escribir uno nuevo, o los gestionas aquí.
       </p>

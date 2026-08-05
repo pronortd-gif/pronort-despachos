@@ -220,6 +220,7 @@ export function VistaDia({
             onBajar={() => moverDespacho(items, d.id, 1)}
             esPrimero={i === 0}
             esUltimo={i === items.length - 1}
+            indice={i}
             oscuro={oscuro} sedes={sedes}
           />
         ))
@@ -229,7 +230,7 @@ export function VistaDia({
   };
 
   return (
-    <div className="view-in">
+    <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
         <button onClick={onVolver} aria-label="Volver al calendario" style={{ padding: "0 12px" }}><Icon name="arrow-left" size={15} /> Calendario</button>
         <div style={{ flex: 1 }} />

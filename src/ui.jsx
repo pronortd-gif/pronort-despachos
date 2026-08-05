@@ -1,7 +1,27 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
-export function Icon({ name, size }) {
-  return <i className={"ti ti-" + name} style={{ fontSize: size || 16 }} aria-hidden="true" />;
+export function Icon({ name, size, girando }) {
+  return <i className={"ti ti-" + name + (girando ? " girando" : "")} style={{ fontSize: size || 16 }} aria-hidden="true" />;
+}
+
+// Devuelve true durante un momento cada vez que `valor` cambia.
+// Sirve para confirmar visualmente que una acción ocurrió: marcar un
+// despacho como entregado cambiaba la tarjeta de golpe, sin nada que
+// dijera "sí, te hice caso" — y con varias tarjetas parecidas en
+// pantalla es fácil dudar de si pulsaste la correcta.
+export function useCambioReciente(valor, ms) {
+  const [activo, setActivo] = useState(false);
+  const previo = useRef(valor);
+
+  useEffect(() => {
+    if (previo.current === valor) return undefined;
+    previo.current = valor;
+    setActivo(true);
+    const t = setTimeout(() => setActivo(false), ms || 550);
+    return () => clearTimeout(t);
+  }, [valor, ms]);
+
+  return activo;
 }
 
 export function Badge({ children, color, bg }) {

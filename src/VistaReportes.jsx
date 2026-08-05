@@ -305,7 +305,7 @@ export function VistaReportes({
   }, [datosGrafico, oscuro]);
 
   return (
-    <div className="view-in">
+    <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
         {Object.keys(RANGOS).map((k) => (
           <button key={k} onClick={() => elegirRango(k)} style={{ fontSize: 13, height: 34, padding: "0 12px", borderColor: rango === k ? "var(--brand-accent)" : "var(--border)", color: rango === k ? "var(--brand-accent)" : "var(--text-secondary)" }}>
@@ -441,17 +441,31 @@ export function VistaReportes({
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {bandas.map((banda) => {
+            {/* La "key" hace que el cuerpo se vuelva a montar al cambiar
+                de vista, tipo o rango: la tabla se rellena en diagonal y
+                se ve que los números corresponden al filtro nuevo, en vez
+                de cambiar de golpe sin avisar. */}
+            <tbody key={vistaCalor + "/" + tipoEnCalor + "/" + rango}>
+              {bandas.map((banda, fila) => {
                 const filaTotal = sedesConDatos.reduce((a, cod) => a + (heat[banda.hora + "|" + cod] || 0), 0);
                 return (
                   <tr key={banda.hora}>
                     <td className="heat-hora" style={{ fontSize: 11.5, color: filaTotal ? "var(--text-primary)" : "var(--text-muted)" }}>{banda.label}</td>
-                    {sedesConDatos.map((cod) => {
+                    {sedesConDatos.map((cod, col) => {
                       const v = heat[banda.hora + "|" + cod] || 0;
                       const intensa = v > 0 && intensidadVisual(v) > 0.62;
                       return (
-                        <td key={cod} className="heat-celda" style={{ background: colorCalor(v), color: intensa ? "#fff" : "var(--text-primary)" }}>
+                        <td
+                          key={cod}
+                          className="heat-celda"
+                          style={{
+                            background: colorCalor(v),
+                            color: intensa ? "#fff" : "var(--text-primary)",
+                            // Diagonal: fila + columna. Topado para que una
+                            // tabla grande no tarde en terminar de aparecer.
+                            animationDelay: Math.min(fila + col, 14) * 18 + "ms",
+                          }}
+                        >
                           {v || ""}
                         </td>
                       );

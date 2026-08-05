@@ -28,12 +28,28 @@ const TABS = [
   { id: "catalogos", label: "Catálogos", icon: "database" },
 ];
 
+const ORDEN_TABS = TABS.map((t) => t.id);
+
 function AppInterna({ cerrarSesion, correo }) {
   const [tab, setTab] = useState("calendario");
   const [mesActual, setMesActual] = useState(hoy().slice(0, 7));
   const [diaSeleccionado, setDiaSeleccionado] = useState(null);
   const [tema, setTema] = useTemaLocal();
   const oscuro = tema === "dark";
+
+  // Hacia dónde se mueve el usuario: +1 avanza (pestaña de la derecha, o
+  // entrar al detalle de un día), -1 retrocede. La vista entra desde ese
+  // lado, para que el movimiento diga dónde estás en vez de que todo
+  // aparezca siempre igual.
+  const [direccion, setDireccion] = useState(1);
+
+  const irATab = (id) => {
+    setDireccion(ORDEN_TABS.indexOf(id) >= ORDEN_TABS.indexOf(tab) ? 1 : -1);
+    setTab(id);
+    if (id === "calendario") setDiaSeleccionado(null);
+  };
+  const abrirDia = (fecha) => { setDireccion(1); setDiaSeleccionado(fecha); };
+  const volverAlCalendario = () => { setDireccion(-1); setDiaSeleccionado(null); };
 
   const sedesDB = useSedesDB();
   const bloquesDB = useBloquesDB();
@@ -150,7 +166,7 @@ function AppInterna({ cerrarSesion, correo }) {
     return mostrarSiFalla(error);
   };
 
-  const editarDesdeHistorial = (d) => { setDiaSeleccionado(d.fecha); setTab("calendario"); };
+  const editarDesdeHistorial = (d) => { setDireccion(1); setDiaSeleccionado(d.fecha); setTab("calendario"); };
 
   const totalHoy = despachosDB.despachos.filter((d) => d.fecha === hoy()).length;
 
@@ -172,7 +188,7 @@ function AppInterna({ cerrarSesion, correo }) {
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={refrescar} disabled={refrescando} aria-label="Refrescar datos" title="Traer los cambios que hayan hecho otros" style={{ width: 38, height: 38, padding: 0 }}>
-            <Icon name="refresh" size={17} />
+            <Icon name="refresh" size={17} girando={refrescando} />
           </button>
           <button key={tema} onClick={() => setTema(oscuro ? "light" : "dark")} aria-label="Cambiar tema" style={{ width: 38, height: 38, padding: 0, animation: "spinIn 0.3s cubic-bezier(0.16,1,0.3,1)" }}>
             <Icon name={oscuro ? "sun" : "moon"} size={17} />
@@ -194,7 +210,7 @@ function AppInterna({ cerrarSesion, correo }) {
             {TABS.map((t) => (
               <button
                 key={t.id}
-                onClick={() => { setTab(t.id); if (t.id === "calendario") setDiaSeleccionado(null); }}
+                onClick={() => irATab(t.id)}
                 style={{ borderBottomColor: tab === t.id ? "var(--brand-accent)" : "transparent", color: tab === t.id ? "var(--text-primary)" : "var(--text-secondary)" }}
               >
                 <Icon name={t.icon} size={16} /> {t.label}
@@ -202,13 +218,18 @@ function AppInterna({ cerrarSesion, correo }) {
             ))}
           </div>
 
+          {/* La "key" fuerza que la vista se vuelva a montar al cambiar de
+              pestaña o de día, que es lo que dispara la animación de
+              entrada. La clase decide desde qué lado llega. */}
+          <div key={tab + "/" + (diaSeleccionado || "")} className={direccion >= 0 ? "vista-der" : "vista-izq"}>
+
           {tab === "calendario" && !diaSeleccionado && (
             <VistaCalendario
               mesActual={mesActual}
               onCambiarMes={setMesActual}
               despachos={despachosDB.despachos}
               mapaHorarios={horariosDB.mapa}
-              onSeleccionarDia={setDiaSeleccionado}
+              onSeleccionarDia={abrirDia}
               oscuro={oscuro}
             />
           )}
@@ -216,7 +237,7 @@ function AppInterna({ cerrarSesion, correo }) {
           {tab === "calendario" && diaSeleccionado && (
             <VistaDia
               fecha={diaSeleccionado}
-              onVolver={() => setDiaSeleccionado(null)}
+              onVolver={volverAlCalendario}
               bloques={bloquesDB.bloquesDe(diaSeleccionado)}
               cargandoBloques={bloquesDB.cargandoDe(diaSeleccionado)}
               onGuardarBloque={guardarBloqueDelDia}
@@ -278,6 +299,8 @@ function AppInterna({ cerrarSesion, correo }) {
               oscuro={oscuro}
             />
           )}
+
+          </div>
         </React.Fragment>
       )}
     </div>

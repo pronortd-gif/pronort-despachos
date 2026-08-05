@@ -69,7 +69,7 @@ export function VistaHistorial({
   const hayFiltros = filtroTexto || filtroFecha || filtroTipo || filtroSede || filtroEstado;
 
   return (
-    <div className="view-in">
+    <div>
       <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
         <input placeholder="Buscar cliente, proveedor, persona, comprobante, dirección..." value={filtroTexto} onChange={(e) => setFiltroTexto(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
         <input type="date" value={filtroFecha} onChange={(e) => setFiltroFecha(e.target.value)} style={{ width: 165 }} aria-label="Filtrar por fecha" />

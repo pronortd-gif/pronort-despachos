@@ -1,20 +1,50 @@
 import React from "react";
 import { TIPOS, CONFIG_TIPO, sedeLabel, tituloConCelular, personasConCelular, mostrarComprobante } from "./constants";
-import { Icon, Badge, SelectorEstado } from "./ui";
+import { Icon, Badge, SelectorEstado, useCambioReciente } from "./ui";
 
-export function TarjetaDespacho({ despacho, onEditar, onEliminar, onCambiarEstado, onSubir, onBajar, esPrimero, esUltimo, oscuro, sedes }) {
+export function TarjetaDespacho({ despacho, onEditar, onEliminar, onCambiarEstado, onSubir, onBajar, esPrimero, esUltimo, indice, oscuro, sedes }) {
   const t = TIPOS[despacho.tipo] || TIPOS.VENTA;
   const cfg = CONFIG_TIPO[despacho.tipo] || CONFIG_TIPO.VENTA;
   const color = oscuro ? t.dark : t.color;
   const entregado = despacho.estado === "entregado";
   const noEntregado = despacho.estado === "no_entregado";
+
+  // Un halo breve alrededor de la tarjeta al cambiar de estado, en el
+  // color de ese estado. Se hace con "outline" y no con una animación
+  // para que no pelee con la animación de entrada (card-in): si ambas
+  // ocuparan la propiedad "animation", al terminar el halo la tarjeta
+  // volvería a entrar deslizándose.
+  const recienCambiado = useCambioReciente(despacho.estado);
+  const colorHalo = entregado ? "var(--ok)" : noEntregado ? "var(--brand-accent)" : "var(--text-secondary)";
+  const bordeFino = "0.5px solid " + ((entregado || noEntregado) ? "var(--border)" : color);
+
+  // Escalonado de entrada, topado a 8: con un horario de 15 despachos,
+  // esperar 15 escalones para verlos todos sería una molestia diaria.
+  const retardo = Math.min(indice || 0, 8) * 28;
   const titulo = tituloConCelular(despacho, sedes);
   const personas = personasConCelular(despacho);
   const comprobante = mostrarComprobante(despacho.comprobante);
   const guia = mostrarComprobante(despacho.numGuia);
 
   return (
-    <div className="card-in" style={{ background: "var(--surface-2)", border: "0.5px solid " + ((entregado || noEntregado) ? "var(--border)" : color), borderLeft: "3px solid " + (noEntregado ? "var(--brand-accent)" : color), borderRadius: 10, padding: "0.65rem 0.9rem", marginBottom: 8, opacity: entregado ? 0.72 : 1, transition: "opacity 0.2s ease, border-color 0.2s ease" }}>
+    <div
+      className="card-in"
+      style={{
+        background: "var(--surface-2)",
+        // Los tres lados van por separado en vez de usar el atajo
+        // "border": mezclarlo con "borderLeft" hace que, al re-renderizar,
+        // el atajo pueda pisar el borde izquierdo — que es justo el que
+        // lleva el color del tipo de despacho.
+        borderTop: bordeFino, borderRight: bordeFino, borderBottom: bordeFino,
+        borderLeft: "3px solid " + (noEntregado ? "var(--brand-accent)" : color),
+        borderRadius: 10, padding: "0.65rem 0.9rem", marginBottom: 8,
+        opacity: entregado ? 0.72 : 1,
+        animationDelay: retardo + "ms",
+        outline: "2px solid " + (recienCambiado ? colorHalo : "transparent"),
+        outlineOffset: 2,
+        transition: "opacity 0.2s ease, border-color 0.2s ease, outline-color 0.35s ease",
+      }}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
           <button onClick={onSubir} disabled={esPrimero} aria-label="Subir en el orden" style={{ width: 26, height: 22, padding: 0 }}><Icon name="chevron-up" size={13} /></button>

@@ -258,17 +258,57 @@ th { color: var(--text-secondary); font-weight: 500; }
 }
 @media (max-width: 640px) { .tabs-bar button { padding: 8px 11px; font-size: 13px; } }
 
-/* ---- Animaciones ---- */
+/* ============================================
+   Animaciones
+
+   Criterio: esto es una herramienta de trabajo que se usa decenas de
+   veces al día, no una web de presentación. Cada animación tiene que
+   cumplir una de dos funciones — decir DE DÓNDE viene algo, o confirmar
+   que una acción ocurrió — y ninguna puede hacer esperar al usuario.
+   De ahí que casi todo esté entre 0.2s y 0.3s.
+   ============================================ */
+
+/* ---- Entrada de una vista, con dirección ----
+   Al avanzar (pestaña de la derecha, o entrar al detalle de un día) la
+   vista llega desde la derecha; al retroceder, desde la izquierda. Así
+   el movimiento indica en qué parte de la app estás, en vez de que todo
+   caiga siempre desde arriba igual. */
+@keyframes vistaDesdeDer { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes vistaDesdeIzq { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: translateX(0); } }
+.vista-der { animation: vistaDesdeDer 0.26s cubic-bezier(0.16, 1, 0.3, 1); }
+.vista-izq { animation: vistaDesdeIzq 0.26s cubic-bezier(0.16, 1, 0.3, 1); }
+
 @keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .view-in { animation: viewIn 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* ---- Tarjetas de despacho, escalonadas ----
+   "backwards" para que no parpadeen durante su retardo. El escalonado
+   lo pone el componente y está topado: con 15 despachos en un horario
+   no se puede tardar 15 escalones en verlos todos. */
 @keyframes cardIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-.card-in { animation: cardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+.card-in { animation: cardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+
+/* ---- Celdas del mapa de calor ---- */
+@keyframes celdaIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+.heat-celda { animation: celdaIn 0.22s ease-out backwards; }
+
 @keyframes modalFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes modalPop { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes spinIn { from { transform: rotate(-90deg) scale(0.6); opacity: 0; } to { transform: rotate(0) scale(1); opacity: 1; } }
 @keyframes statIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
+/* ---- Giro continuo, para el botón de refrescar mientras trabaja ---- */
+@keyframes girar { to { transform: rotate(360deg); } }
+.girando { display: inline-flex; animation: girar 0.7s linear infinite; }
+
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    /* Sin esto, un giro infinito con duración 0.01ms no se detiene:
+       parpadea a toda velocidad, que es peor que no animar nada. */
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

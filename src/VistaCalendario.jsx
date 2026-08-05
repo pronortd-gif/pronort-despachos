@@ -46,7 +46,7 @@ export function VistaCalendario({ mesActual, onCambiarMes, despachos, mapaHorari
   const hoyIso = hoy();
 
   return (
-    <div className="view-in">
+    <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <button onClick={() => cambiarMes(-1)} aria-label="Mes anterior" style={{ width: 38, height: 38, padding: 0 }}><Icon name="chevron-left" /></button>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -62,7 +62,7 @@ export function VistaCalendario({ mesActual, onCambiarMes, despachos, mapaHorari
         ))}
       </div>
 
-      <div key={mesActual} className="cal-grid view-in">
+      <div key={mesActual} className="cal-grid">
         {celdas.map((d, i) => {
           if (d === null) return <div key={"empty-" + i} />;
           const iso = anio + "-" + String(mes).padStart(2, "0") + "-" + String(d).padStart(2, "0");
