@@ -261,6 +261,14 @@ function consultarDespachos(completo) {
   };
 }
 
+// Primer día del mes siguiente a "YYYY-MM". Se usa como límite superior
+// exclusivo: construir "YYYY-MM-31" fallaría en meses de 30 días o en
+// febrero, porque Postgres rechaza una fecha que no existe.
+function inicioDelMesSiguiente(mes) {
+  const [y, m] = mes.split("-").map(Number);
+  return m === 12 ? (y + 1) + "-01-01" : y + "-" + String(m + 1).padStart(2, "0") + "-01";
+}
+
 export function useDespachosDB() {
   const [despachos, setDespachos] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -270,11 +278,30 @@ export function useDespachosDB() {
   // diario mira las últimas semanas.
   const [historicoCompleto, setHistoricoCompleto] = useState(false);
   const [cargandoHistorico, setCargandoHistorico] = useState(false);
+  const [cargandoMes, setCargandoMes] = useState(false);
 
+  // Meses anteriores a la ventana que ya se trajeron bajo demanda.
+  const mesesCargados = useRef(new Set());
+  // Contador de peticiones: varias cargas pueden solaparse (el refresco
+  // al volver a la pestaña, el botón manual y "cargar histórico"), y sin
+  // esto la que RESPONDE última gana, aunque sea la más antigua. Una
+  // consulta de 90 días que llegue después de la del histórico completo
+  // dejaba la lista recortada pero con historicoCompleto ya en true, y
+  // el botón para volver a pedirlo desaparecido.
+  const peticionActual = useRef(0);
+  const historicoRef = useRef(false);
+
+  // Devuelve true si se aplicó, false si falló, null si quedó superada
+  // por una petición posterior.
   const cargar = useCallback(async (completo) => {
+    const miPeticion = ++peticionActual.current;
     const { data, error: err } = await traerTodo(consultarDespachos(completo));
+    if (miPeticion !== peticionActual.current) return null;
     if (err) { setError(mensajeError(err, "cargar los despachos")); return false; }
     setError("");
+    // Una carga completa reemplaza la lista entera, así que los meses
+    // traídos aparte dejan de estar presentes.
+    mesesCargados.current = new Set();
     setDespachos((data || []).map(despachoDbToApp));
     return true;
   }, []);
@@ -282,14 +309,53 @@ export function useDespachosDB() {
   useEffect(() => { cargar(false).then(() => setCargando(false)); }, [cargar]);
 
   const cargarHistorico = useCallback(async () => {
-    if (historicoCompleto || cargandoHistorico) return;
+    if (historicoRef.current || cargandoHistorico) return;
     setCargandoHistorico(true);
-    const ok = await cargar(true);
-    if (ok) setHistoricoCompleto(true);
+    const r = await cargar(true);
+    // Solo se marca como completo si esta respuesta fue la que se aplicó.
+    if (r === true) { historicoRef.current = true; setHistoricoCompleto(true); }
     setCargandoHistorico(false);
-  }, [cargar, historicoCompleto, cargandoHistorico]);
+  }, [cargar, cargandoHistorico]);
 
-  const recargar = useCallback(() => cargar(historicoCompleto), [cargar, historicoCompleto]);
+  const recargar = useCallback(() => cargar(historicoRef.current), [cargar]);
+
+  // El calendario deja abrir cualquier fecha, pero al arrancar solo hay
+  // en memoria los últimos DIAS_VENTANA días. Sin esto, un día anterior
+  // mostraba sus horarios pero CERO despachos: parecía vacío y se podían
+  // crear duplicados o reordenar sobre información incompleta.
+  const asegurarMes = useCallback(async (mes) => {
+    if (!mes) return "";
+    const dentroDeVentana = (mes + "-01") >= diasAtras(DIAS_VENTANA);
+    if (historicoRef.current || dentroDeVentana || mesesCargados.current.has(mes)) return "";
+
+    mesesCargados.current.add(mes);
+    setCargandoMes(true);
+    const { data, error: err } = await traerTodo(() =>
+      supabase.from("despachos").select("*")
+        .gte("fecha", mes + "-01")
+        .lt("fecha", inicioDelMesSiguiente(mes))
+        .order("fecha", { ascending: false })
+    );
+    setCargandoMes(false);
+
+    if (err) {
+      // Se desmarca para que un reintento vuelva a pedirlo.
+      mesesCargados.current.delete(mes);
+      const m = mensajeError(err, "cargar los despachos de ese mes");
+      setError(m);
+      return m;
+    }
+    const traidos = (data || []).map(despachoDbToApp);
+    setDespachos((prev) => prev.filter((d) => (d.fecha || "").slice(0, 7) !== mes).concat(traidos));
+    return "";
+  }, []);
+
+  // Para que la vista sepa si un día está realmente cargado o solo
+  // parece vacío porque su mes nunca se pidió.
+  const mesDisponible = useCallback((mes) => {
+    if (!mes) return true;
+    return historicoRef.current || (mes + "-01") >= diasAtras(DIAS_VENTANA) || mesesCargados.current.has(mes);
+  }, []);
 
   const guardar = async (despacho) => {
     const yaEnPantalla = despacho.id && despachos.some((x) => x.id === despacho.id);
@@ -371,6 +437,7 @@ export function useDespachosDB() {
   return {
     despachos, cargando, error,
     historicoCompleto, cargandoHistorico, cargarHistorico, recargar,
+    cargandoMes, asegurarMes, mesDisponible,
     guardar, eliminar, cambiarEstado, actualizarOrden,
     desasignarBloque, reasignarBloque,
   };

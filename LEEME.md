@@ -60,9 +60,19 @@ te llega al commit.
 
 ## La base de datos
 
-La base ya está creada y migrada en Supabase — no hay ningún script que correr para que la app
-funcione. Si en el futuro hace falta cambiar el esquema (una columna nueva, una tabla), se agrega
-un script SQL nuevo al repositorio y se corre una sola vez en supabase.com → **SQL Editor**.
+La base ya está creada en Supabase — **no hay ningún script que correr** para que la app funcione.
+
+`supabase_esquema.sql` es el esquema de referencia: qué tablas hay, qué columnas, las claves
+foráneas y —lo más importante— las políticas de seguridad (RLS). Está versionado a propósito:
+toda la app habla con Supabase desde el navegador con la clave pública, así que **lo único que
+impide que cualquiera lea o borre los datos son esas políticas**. Si no están en el repositorio,
+no hay forma de revisarlas ni de notar que cambiaron.
+
+Solo se ejecuta para levantar una base nueva y vacía (un ambiente de pruebas). Nunca sobre la
+base en uso.
+
+Si alguna vez cambias el esquema desde el panel de Supabase, **actualiza ese archivo en el mismo
+commit**, o dejará de reflejar la realidad.
 
 Para mirar los datos en crudo: Supabase → **Table Editor**.
 

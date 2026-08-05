@@ -12,7 +12,7 @@ const sb = vi.hoisted(() => {
   let actual = null;
 
   const cadena = {};
-  ["select", "insert", "update", "delete", "eq", "in", "gte", "lte", "order", "range", "single"].forEach((m) => {
+  ["select", "insert", "update", "delete", "eq", "in", "gte", "lt", "lte", "order", "range", "single"].forEach((m) => {
     cadena[m] = (...args) => { actual.pasos.push({ m, args }); return cadena; };
   });
   cadena.then = (resolver, rechazar) => {
@@ -284,5 +284,152 @@ describe("useDespachosDB", () => {
     const { result } = await montar();
     await act(async () => { await result.current.reasignarBloque([], "b1"); });
     expect(sb.registro).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------
+// Hallazgo de auditoría (Alta): el calendario deja abrir cualquier fecha,
+// pero al arrancar solo hay en memoria los últimos 90 días. Un día
+// anterior mostraba sus horarios y CERO despachos: parecía vacío, y sobre
+// eso se podían crear duplicados o reordenar con información incompleta.
+describe("useDespachosDB: días fuera de la ventana de 90 días", () => {
+  const montar = async () => {
+    sb.encolar({ data: [], error: null });
+    const r = renderHook(() => useDespachosDB());
+    await waitFor(() => expect(r.result.current.cargando).toBe(false));
+    sb.limpiar();
+    return r;
+  };
+  // Un mes claramente anterior a la ventana.
+  const mesViejo = "2020-03";
+
+  it("un mes dentro de la ventana no genera ninguna consulta", async () => {
+    const { result } = await montar();
+    const mesActual = new Date().toISOString().slice(0, 7);
+    await act(async () => { await result.current.asegurarMes(mesActual); });
+    expect(sb.registro).toHaveLength(0);
+    expect(result.current.mesDisponible(mesActual)).toBe(true);
+  });
+
+  it("un mes anterior sí se pide, acotado a ese mes", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: [{ ...filaBase, id: "viejo-1", fecha: "2020-03-15" }], error: null });
+    await act(async () => { await result.current.asegurarMes(mesViejo); });
+
+    const op = sb.ultima("despachos");
+    expect(sb.paso(op, "gte").args).toEqual(["fecha", "2020-03-01"]);
+    // Límite superior exclusivo con el mes siguiente: "2020-03-31" fallaría
+    // en meses de 30 días y en febrero.
+    expect(sb.paso(op, "lt").args).toEqual(["fecha", "2020-04-01"]);
+    expect(result.current.despachos.some((d) => d.id === "viejo-1")).toBe(true);
+  });
+
+  it("diciembre pide enero del año siguiente como límite", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: [], error: null });
+    await act(async () => { await result.current.asegurarMes("2020-12"); });
+    expect(sb.paso(sb.ultima("despachos"), "lt").args).toEqual(["fecha", "2021-01-01"]);
+  });
+
+  it("no se pide dos veces el mismo mes", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: [], error: null });
+    await act(async () => { await result.current.asegurarMes(mesViejo); });
+    sb.limpiar();
+    await act(async () => { await result.current.asegurarMes(mesViejo); });
+    expect(sb.registro).toHaveLength(0);
+  });
+
+  it("volver a pedir el mes reemplaza sus despachos en vez de duplicarlos", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: [{ ...filaBase, id: "v1", fecha: "2020-03-15" }], error: null });
+    await act(async () => { await result.current.asegurarMes(mesViejo); });
+    expect(result.current.despachos.filter((d) => d.fecha.startsWith("2020-03"))).toHaveLength(1);
+
+    // Una recarga completa descarta los meses traídos aparte, así que el
+    // mes vuelve a estar disponible para pedirse.
+    sb.encolar({ data: [], error: null });
+    await act(async () => { await result.current.recargar(); });
+    expect(result.current.mesDisponible(mesViejo)).toBe(false);
+
+    sb.encolar({ data: [{ ...filaBase, id: "v1", fecha: "2020-03-15" }], error: null });
+    await act(async () => { await result.current.asegurarMes(mesViejo); });
+    expect(result.current.despachos.filter((d) => d.id === "v1")).toHaveLength(1);
+  });
+
+  it("si falla, el mes queda marcado como no disponible para reintentarlo", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: null, error: { message: "Failed to fetch" } });
+    let err;
+    await act(async () => { err = await result.current.asegurarMes(mesViejo); });
+    expect(err).toMatch(/Sin conexión/);
+    expect(result.current.mesDisponible(mesViejo)).toBe(false);
+  });
+
+  it("con el histórico completo ya no hace falta pedir meses sueltos", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: [], error: null });
+    await act(async () => { await result.current.cargarHistorico(); });
+    expect(result.current.historicoCompleto).toBe(true);
+    sb.limpiar();
+    await act(async () => { await result.current.asegurarMes(mesViejo); });
+    expect(sb.registro).toHaveLength(0);
+    expect(result.current.mesDisponible(mesViejo)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------
+// Hallazgo de auditoría: varias cargas pueden solaparse (refresco al
+// volver a la pestaña, botón manual, "cargar histórico"). Sin guarda, la
+// que RESPONDE última gana aunque sea la más antigua.
+describe("useDespachosDB: carreras entre recargas", () => {
+  const montar = async () => {
+    sb.encolar({ data: [], error: null });
+    const r = renderHook(() => useDespachosDB());
+    await waitFor(() => expect(r.result.current.cargando).toBe(false));
+    sb.limpiar();
+    return r;
+  };
+
+  it("una respuesta superada no pisa la lista de la más reciente", async () => {
+    const { result } = await montar();
+    let resolverLenta;
+    const lenta = new Promise((res) => { resolverLenta = res; });
+    sb.encolar(lenta);                                                     // 1ª petición
+    sb.encolar({ data: [{ ...filaBase, id: "reciente" }], error: null });  // 2ª petición
+
+    await act(async () => {
+      const p1 = result.current.recargar();
+      await Promise.resolve();
+      const p2 = result.current.recargar();
+      await p2;
+      // La primera responde AHORA, tarde y con datos viejos.
+      resolverLenta({ data: [{ ...filaBase, id: "vieja" }], error: null });
+      await p1;
+    });
+
+    expect(result.current.despachos.map((d) => d.id)).toEqual(["reciente"]);
+  });
+
+  it("si la carga del histórico queda superada, no se marca como completo", async () => {
+    const { result } = await montar();
+    let resolverHistorico;
+    const historico = new Promise((res) => { resolverHistorico = res; });
+    sb.encolar(historico);                                                  // cargarHistorico
+    sb.encolar({ data: [{ ...filaBase, id: "de-90-dias" }], error: null }); // recarga posterior
+
+    await act(async () => {
+      const pHist = result.current.cargarHistorico();
+      await Promise.resolve();
+      const pRec = result.current.recargar();
+      await pRec;
+      resolverHistorico({ data: [{ ...filaBase, id: "de-todo" }], error: null });
+      await pHist;
+    });
+
+    // Lo que quedó en memoria son 90 días, así que el botón de "cargar
+    // todo el histórico" tiene que seguir disponible.
+    expect(result.current.despachos.map((d) => d.id)).toEqual(["de-90-dias"]);
+    expect(result.current.historicoCompleto).toBe(false);
   });
 });

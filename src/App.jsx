@@ -61,6 +61,7 @@ function AppInterna({ cerrarSesion, correo }) {
   const cargarFecha = bloquesDB.cargarFecha;
   const recargarHorarios = horariosDB.recargar;
   const recargarDespachos = despachosDB.recargar;
+  const asegurarMes = despachosDB.asegurarMes;
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", tema);
@@ -70,6 +71,15 @@ function AppInterna({ cerrarSesion, correo }) {
   useEffect(() => {
     if (diaSeleccionado) cargarFecha(diaSeleccionado);
   }, [diaSeleccionado, cargarFecha]);
+
+  // Los despachos solo están en memoria para los últimos 90 días, pero
+  // el calendario deja abrir cualquier fecha. Al mirar un mes anterior
+  // (o abrir un día de ese mes) hay que traerlo, o la pantalla mostraría
+  // el día vacío aunque tenga despachos — y se podrían duplicar.
+  useEffect(() => { asegurarMes(mesActual); }, [mesActual, asegurarMes]);
+  useEffect(() => {
+    if (diaSeleccionado) asegurarMes(diaSeleccionado.slice(0, 7));
+  }, [diaSeleccionado, asegurarMes]);
 
   // Reportes usa un mapa aparte de todos los horarios (para no tener
   // que cargar fecha por fecha). Se refresca al abrir Reportes o el
@@ -88,9 +98,13 @@ function AppInterna({ cerrarSesion, correo }) {
   const refrescar = useCallback(async () => {
     setRefrescando(true);
     await Promise.all([recargarDespachos(), recargarHorarios()]);
+    // Una recarga completa reemplaza la lista y descarta los meses
+    // traídos aparte: hay que volver a pedir el que se está mirando, o
+    // el día abierto quedaría vacío después de refrescar.
+    await asegurarMes((diaSeleccionado || mesActual + "-01").slice(0, 7));
     if (diaSeleccionado) await cargarFecha(diaSeleccionado, true);
     setRefrescando(false);
-  }, [recargarDespachos, recargarHorarios, cargarFecha, diaSeleccionado]);
+  }, [recargarDespachos, recargarHorarios, cargarFecha, asegurarMes, diaSeleccionado, mesActual]);
 
   useEffect(() => {
     const alVolver = () => { if (document.visibilityState === "visible") refrescar(); };
@@ -231,6 +245,7 @@ function AppInterna({ cerrarSesion, correo }) {
               mapaHorarios={horariosDB.mapa}
               onSeleccionarDia={abrirDia}
               oscuro={oscuro}
+              cargandoMes={despachosDB.cargandoMes}
             />
           )}
 
@@ -240,6 +255,7 @@ function AppInterna({ cerrarSesion, correo }) {
               onVolver={volverAlCalendario}
               bloques={bloquesDB.bloquesDe(diaSeleccionado)}
               cargandoBloques={bloquesDB.cargandoDe(diaSeleccionado)}
+              cargandoDespachos={despachosDB.cargandoMes || !despachosDB.mesDisponible(diaSeleccionado.slice(0, 7))}
               onGuardarBloque={guardarBloqueDelDia}
               onEliminarBloque={eliminarBloqueDelDia}
               onRestaurarBloque={restaurarBloque}

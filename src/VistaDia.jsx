@@ -18,7 +18,7 @@ function BarraCapacidad({ cantidad }) {
 }
 
 export function VistaDia({
-  fecha, onVolver, bloques, cargandoBloques,
+  fecha, onVolver, bloques, cargandoBloques, cargandoDespachos,
   onGuardarBloque, onEliminarBloque, onRestaurarBloque, onCopiarHorarios, onCrearHorarioRapido,
   despachos, onGuardarDespacho, onEliminarDespacho, onCambiarEstado, onActualizarOrden,
   oscuro, catalogos, sedes,
@@ -239,10 +239,13 @@ export function VistaDia({
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-        <button onClick={() => setModal({ tipo: "bloque", data: {} })} style={{ borderColor: "var(--brand-accent-2)", color: "var(--brand-accent-2)" }}>
+        {/* Deshabilitados mientras no se sepa qué hay en este día: crear
+            o copiar horarios sobre información incompleta es justo lo
+            que produce duplicados. */}
+        <button onClick={() => setModal({ tipo: "bloque", data: {} })} disabled={cargandoDespachos} style={{ borderColor: "var(--brand-accent-2)", color: "var(--brand-accent-2)" }}>
           <Icon name="clock-plus" size={15} /> Nuevo horario de salida
         </button>
-        {bloques.length === 0 && (
+        {bloques.length === 0 && !cargandoDespachos && (
           <button onClick={copiarDelDiaAnterior}>
             <Icon name="copy" size={15} /> Copiar horarios del día anterior
           </button>
@@ -276,22 +279,38 @@ export function VistaDia({
 
         {cargandoBloques && <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Cargando horarios...</p>}
 
-        {!cargandoBloques && bloques.length === 0 && (
+        {/* Un día anterior a los últimos 90 tiene sus horarios en memoria
+            pero no sus despachos hasta que se piden. Mostrarlo como
+            "vacío" mientras tanto invita a duplicar lo que ya existe, así
+            que se dice explícitamente y no se pinta ningún horario. */}
+        {cargandoDespachos ? (
           <div style={{ textAlign: "center", padding: "2rem 1rem", color: "var(--text-secondary)" }}>
-            <Icon name="clock" size={28} />
-            <p style={{ fontSize: 14, margin: "8px 0 0" }}>Aún no hay horarios de salida para este día.</p>
-            <p style={{ fontSize: 13, margin: "2px 0 0", color: "var(--text-muted)" }}>Créalos arriba, o copia los del día anterior.</p>
+            <Icon name="clock" size={26} />
+            <p style={{ fontSize: 14, margin: "8px 0 0" }}>Cargando los despachos de este día...</p>
+            <p style={{ fontSize: 13, margin: "2px 0 0", color: "var(--text-muted)" }}>
+              Es una fecha anterior a los últimos 90 días, así que se piden aparte.
+            </p>
           </div>
+        ) : (
+          <React.Fragment>
+            {!cargandoBloques && bloques.length === 0 && (
+              <div style={{ textAlign: "center", padding: "2rem 1rem", color: "var(--text-secondary)" }}>
+                <Icon name="clock" size={28} />
+                <p style={{ fontSize: 14, margin: "8px 0 0" }}>Aún no hay horarios de salida para este día.</p>
+                <p style={{ fontSize: 13, margin: "2px 0 0", color: "var(--text-muted)" }}>Créalos arriba, o copia los del día anterior.</p>
+              </div>
+            )}
+
+            {bloques.map((b) => renderGrupo(
+              b.inicio + " – " + b.fin,
+              b.nombre || "",
+              despachosDia.filter((d) => d.bloqueId === b.id),
+              b
+            ))}
+
+            {sinHorario.length > 0 && renderGrupo("Sin horario asignado", "", sinHorario, null)}
+          </React.Fragment>
         )}
-
-        {bloques.map((b) => renderGrupo(
-          b.inicio + " – " + b.fin,
-          b.nombre || "",
-          despachosDia.filter((d) => d.bloqueId === b.id),
-          b
-        ))}
-
-        {sinHorario.length > 0 && renderGrupo("Sin horario asignado", "", sinHorario, null)}
       </div>
 
       <div style={{ position: "absolute", left: -99999, top: 0, pointerEvents: "none" }} aria-hidden="true">

@@ -24,17 +24,17 @@
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.2",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^5.2.0",
     "eslint": "^8.57.1",
     "eslint-plugin-react": "^7.37.2",
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.14",
     "jsdom": "^30.0.1",
-    "vite": "^5.4.1",
-    "vitest": "^2.1.8"
+    "vite": "^7.3.6",
+    "vitest": "^3.2.7"
   },
   "allowScripts": {
-    "esbuild@0.21.5": true,
-    "ttf2woff2@8.0.1": true
+    "ttf2woff2@8.0.1": true,
+    "esbuild@0.28.1": true
   }
 }

@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { TIPOS, DIAS_CORTOS, MESES, hoy } from "./constants";
 import { Icon } from "./ui";
 
-export function VistaCalendario({ mesActual, onCambiarMes, despachos, mapaHorarios, onSeleccionarDia, oscuro }) {
+export function VistaCalendario({ mesActual, onCambiarMes, despachos, mapaHorarios, onSeleccionarDia, oscuro, cargandoMes }) {
   const [anio, mes] = mesActual.split("-").map(Number);
   const primerDia = new Date(anio, mes - 1, 1);
   const diasEnMes = new Date(anio, mes, 0).getDate();
@@ -55,6 +55,15 @@ export function VistaCalendario({ mesActual, onCambiarMes, despachos, mapaHorari
         </div>
         <button onClick={() => cambiarMes(1)} aria-label="Mes siguiente" style={{ width: 38, height: 38, padding: 0 }}><Icon name="chevron-right" /></button>
       </div>
+
+      {/* Los meses anteriores a los últimos 90 días se traen al abrirlos.
+          Sin este aviso, los contadores en cero de cada día parecerían
+          decir "no hubo despachos" cuando en realidad aún no llegaron. */}
+      {cargandoMes && (
+        <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 10px", display: "flex", alignItems: "center", gap: 6 }}>
+          <Icon name="refresh" size={13} girando /> Cargando los despachos de este mes...
+        </p>
+      )}
 
       <div className="cal-grid" style={{ marginBottom: 6 }}>
         {DIAS_CORTOS.map((d) => (

@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { TIPOS, BRAND, hoy, diasAtras, sedeLabel, colorLinea, sedeLinea, bandasHorarias, bandaDeHora, tituloDespacho, formatFechaLarga, etiquetaDiaCorta, HORA_INICIO_JORNADA, HORA_FIN_JORNADA } from "./constants";
 import { Icon, Modal, AvisoError } from "./ui";
 import { OPERACIONES, CAMPOS_FILTRO, calcularMetrica, formatoMetrica } from "./metricas";
+import { rangoDeDias, rangoAnterior, dentro } from "./rangos";
+import { calcularSalida, calcularOcupacion, totalesDeSalida, franjaConMasCarga } from "./calor";
 
 function FormMetrica({ onGuardar, onCancelar, sedes }) {
   const [m, setM] = useState({ nombre: "", operacion: "contar", filtroCampo: "", filtroValor: "" });
@@ -58,11 +60,11 @@ function FormMetrica({ onGuardar, onCancelar, sedes }) {
 }
 
 const RANGOS = {
-  hoy: { label: "Hoy", dias: 0 },
+  hoy: { label: "Hoy", dias: 1 },
   semana: { label: "Última semana", dias: 7 },
   mes: { label: "Último mes", dias: 30 },
   todo: { label: "Todo el histórico", dias: null },
-  custom: { label: "Rango personalizado", dias: "custom" },
+  custom: { label: "Rango personalizado", dias: null },
 };
 
 export function VistaReportes({
@@ -85,20 +87,27 @@ export function VistaReportes({
     if (k === "todo" && !historicoCompleto) onCargarHistorico();
   };
 
+  // Ventana de fechas del rango elegido. Se calcula una sola vez y la
+  // usan tanto los despachos como los horarios, para que "ocupación" y
+  // "salida" no puedan quedar mirando periodos distintos.
+  const ventana = useMemo(() => {
+    if (rango === "todo") return null;
+    if (rango === "custom") return { desde, hasta };
+    return rangoDeDias(RANGOS[rango].dias);
+  }, [rango, desde, hasta]);
+
   const despachosFiltrados = useMemo(() => {
-    if (rango === "todo") return despachos;
-    if (rango === "hoy") return despachos.filter((d) => d.fecha === hoy());
-    if (rango === "custom") return despachos.filter((d) => d.fecha >= desde && d.fecha <= hasta);
-    const inicio = diasAtras(RANGOS[rango].dias);
-    return despachos.filter((d) => d.fecha >= inicio);
-  }, [despachos, rango, desde, hasta]);
+    if (!ventana) return despachos;
+    return despachos.filter((d) => dentro(d.fecha, ventana));
+  }, [despachos, ventana]);
 
   const comparacion = useMemo(() => {
     if (rango === "todo" || rango === "custom") return null;
-    const diasRango = rango === "hoy" ? 1 : RANGOS[rango].dias;
-    const anterior = despachos.filter((d) => d.fecha >= diasAtras(diasRango * 2) && d.fecha < diasAtras(diasRango)).length;
+    const dias = RANGOS[rango].dias;
+    const previo = rangoAnterior(dias);
+    const anterior = despachos.filter((d) => dentro(d.fecha, previo)).length;
     if (anterior === 0) return null;
-    return { delta: ((despachosFiltrados.length - anterior) / anterior) * 100, anterior };
+    return { delta: ((despachosFiltrados.length - anterior) / anterior) * 100, anterior, dias };
   }, [despachos, despachosFiltrados, rango]);
 
   const porDia = {};
@@ -120,66 +129,21 @@ export function VistaReportes({
   // elegido arriba, para que "ocupación" respete el mismo filtro.
   const bloquesFiltrados = useMemo(() => {
     const todos = Object.values(mapaHorarios || {});
-    if (rango === "todo") return todos;
-    if (rango === "hoy") return todos.filter((b) => b.fecha === hoy());
-    if (rango === "custom") return todos.filter((b) => b.fecha >= desde && b.fecha <= hasta);
-    const inicio = diasAtras(RANGOS[rango].dias);
-    return todos.filter((b) => b.fecha >= inicio);
-  }, [mapaHorarios, rango, desde, hasta]);
+    if (!ventana) return todos;
+    return todos.filter((b) => dentro(b.fecha, ventana));
+  }, [mapaHorarios, ventana]);
 
-  // Bandas de hora que ocupa un horario completo (no solo su inicio).
-  // Si termina justo en punto (ej. 11:00) esa hora ya no cuenta como
-  // ocupada; si termina pasado en punto (ej. 11:30) sí se incluye.
-  function bandasOcupadas(inicio, fin) {
-    const hi = Number((inicio || "").split(":")[0]);
-    const [hf, mf] = (fin || "").split(":").map(Number);
-    if (isNaN(hi) || isNaN(hf)) return [];
-    let ultimaHora = mf === 0 ? hf - 1 : hf;
-    if (ultimaHora < hi) ultimaHora = hi;
-    const desdeB = Math.max(HORA_INICIO_JORNADA, Math.min(hi, HORA_FIN_JORNADA - 1));
-    const hastaB = Math.max(HORA_INICIO_JORNADA, Math.min(ultimaHora, HORA_FIN_JORNADA - 1));
-    const lista = [];
-    for (let h = desdeB; h <= hastaB; h++) lista.push(h);
-    return lista;
-  }
+  const heatSalida = useMemo(
+    () => calcularSalida(despachosFiltrados, mapaHorarios, tipoEnCalor),
+    [despachosFiltrados, mapaHorarios, tipoEnCalor]
+  );
 
-  const heatSalida = useMemo(() => {
-    const acc = {};
-    despachosFiltrados.forEach((d) => {
-      if (tipoEnCalor && d.tipo !== tipoEnCalor) return;
-      if (!d.tienda) return;
-      const bloque = mapaHorarios[d.bloqueId];
-      if (!bloque) return;
-      const banda = bandaDeHora(bloque.inicio);
-      if (banda == null) return;
-      const clave = banda + "|" + d.tienda;
-      acc[clave] = (acc[clave] || 0) + 1;
-    });
-    return acc;
-  }, [despachosFiltrados, mapaHorarios, tipoEnCalor]);
+  const heatOcupacion = useMemo(
+    () => calcularOcupacion(bloquesFiltrados, despachosFiltrados, tipoEnCalor),
+    [bloquesFiltrados, despachosFiltrados, tipoEnCalor]
+  );
 
-  const heatOcupacion = useMemo(() => {
-    const acc = {};
-    bloquesFiltrados.forEach((b) => {
-      const despachosDelBloque = despachosFiltrados.filter((d) => d.bloqueId === b.id && (!tipoEnCalor || d.tipo === tipoEnCalor));
-      // Si se filtró por tipo y este horario no tiene despachos de ese
-      // tipo, no aplica a esta vista filtrada (aunque sí tenga otros).
-      if (tipoEnCalor && despachosDelBloque.length === 0) return;
-      const sedesDelBloque = despachosDelBloque.length > 0
-        ? Array.from(new Set(despachosDelBloque.map((d) => d.tienda).filter(Boolean)))
-        : ["__vacio__"];
-      const bandasDelBloque = bandasOcupadas(b.inicio, b.fin);
-      sedesDelBloque.forEach((sede) => {
-        bandasDelBloque.forEach((h) => {
-          const clave = h + "|" + sede;
-          acc[clave] = (acc[clave] || 0) + 1;
-        });
-      });
-    });
-    return acc;
-  }, [bloquesFiltrados, despachosFiltrados, tipoEnCalor]);
-
-  const heat = vistaCalor === "ocupacion" ? heatOcupacion : heatSalida;
+  const heat = vistaCalor === "ocupacion" ? heatOcupacion.celdas : heatSalida;
 
   const sedesConDatos = useMemo(() => {
     const set = new Set();
@@ -221,28 +185,18 @@ export function VistaReportes({
   // Sin totales, la tabla decía en qué franja se concentra la carga pero
   // no cuánta carga es en total, ni cuál sede acumula más: había que
   // sumar las celdas con la vista.
-  const totalesCalor = useMemo(() => {
-    const porFila = {};
-    const porColumna = {};
-    let general = 0;
-    Object.keys(heat).forEach((clave) => {
-      const [hora, sede] = clave.split("|");
-      const v = heat[clave];
-      porFila[hora] = (porFila[hora] || 0) + v;
-      porColumna[sede] = (porColumna[sede] || 0) + v;
-      general += v;
-    });
-    return { porFila, porColumna, general };
-  }, [heat]);
+  // En "ocupación" los totales ya vienen contados sobre horarios
+  // distintos: un mismo carro que sirve a dos sedes ocupa dos celdas
+  // pero sigue siendo un solo carro, así que sumar las celdas inflaría
+  // el total y la franja pico.
+  const totalesCalor = useMemo(
+    () => (vistaCalor === "ocupacion"
+      ? { porFila: heatOcupacion.porFila, porColumna: heatOcupacion.porColumna, general: heatOcupacion.general }
+      : totalesDeSalida(heat)),
+    [heat, vistaCalor, heatOcupacion]
+  );
 
-  // La franja con más carga, para señalarla en vez de dejar que el
-  // usuario la busque comparando colores parecidos.
-  const franjaPico = useMemo(() => {
-    const horas = Object.keys(totalesCalor.porFila);
-    if (horas.length === 0) return null;
-    const mejor = horas.reduce((a, b) => (totalesCalor.porFila[b] > totalesCalor.porFila[a] ? b : a));
-    return { hora: Number(mejor), total: totalesCalor.porFila[mejor] };
-  }, [totalesCalor]);
+  const franjaPico = useMemo(() => franjaConMasCarga(totalesCalor.porFila), [totalesCalor]);
 
   // ---- Análisis por sede ----
   const porSede = useMemo(() => {
@@ -527,7 +481,15 @@ export function VistaReportes({
               Franja con más carga: <strong style={{ color: "var(--brand-accent)" }}>
                 {String(franjaPico.hora).padStart(2, "0")}:00–{String(franjaPico.hora + 1).padStart(2, "0")}:00
               </strong>{" "}
-              ({franjaPico.total} de {totalesCalor.general}, {Math.round((franjaPico.total / totalesCalor.general) * 100)}%).
+              {vistaCalor === "ocupacion"
+                ? franjaPico.total + " horario(s) a la vez."
+                : "(" + franjaPico.total + " de " + totalesCalor.general + ", " + Math.round((franjaPico.total / totalesCalor.general) * 100) + "%)."}
+            </p>
+          )}
+          {vistaCalor === "ocupacion" && (
+            <p className="campo-ayuda" style={{ marginBottom: 8 }}>
+              Los totales cuentan horarios distintos. Un horario que atiende a varias sedes aparece
+              en la columna de cada una, así que las celdas de una fila pueden sumar más que su total.
             </p>
           )}
           <div style={{ overflowX: "auto", marginBottom: 32 }}>
