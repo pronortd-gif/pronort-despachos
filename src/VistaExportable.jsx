@@ -55,9 +55,13 @@ export function VistaExportable({ fecha, bloques, despachos, sedes }) {
       {porBloque.map((g) => (
         <div key={g.bloque.id} style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#F2F3F7", borderLeft: "4px solid " + BRAND.azul, borderRadius: 6, padding: "7px 12px", marginBottom: 8 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{horaLegible(g.bloque.inicio)} – {horaLegible(g.bloque.fin)}</span>
-            {g.bloque.nombre && <span style={{ fontSize: 13, color: "#5B6272" }}>{g.bloque.nombre}</span>}
-            <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, color: "#fff", background: BRAND.rojo, borderRadius: 20, padding: "2px 9px" }}>{g.items.length}</span>
+            <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{horaLegible(g.bloque.inicio)} – {horaLegible(g.bloque.fin)}</span>
+            {/* La imagen tiene un ancho fijo de 740px: un nombre largo
+                empujaba el contador fuera del recuadro. Se recorta. */}
+            {g.bloque.nombre && (
+              <span style={{ fontSize: 13, color: "#5B6272", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.bloque.nombre}</span>
+            )}
+            <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 12, fontWeight: 600, color: "#fff", background: BRAND.rojo, borderRadius: 20, padding: "2px 9px" }}>{g.items.length}</span>
           </div>
           {g.items.map((d, i) => renderItem(d, i, i === g.items.length - 1))}
         </div>

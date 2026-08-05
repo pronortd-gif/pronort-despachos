@@ -175,7 +175,7 @@ export function VistaDia({
       <div className="bloque-head">
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
           <span className="bloque-rango"><Icon name="clock" size={14} /> {titulo}</span>
-          {subtitulo && <span style={{ fontWeight: 500, fontSize: 14 }}>{subtitulo}</span>}
+          {subtitulo && <span className="bloque-nombre" title={subtitulo}>{subtitulo}</span>}
           <Badge color="var(--text-secondary)" bg="var(--surface-1)">{items.length}</Badge>
           {bloque && <BarraCapacidad cantidad={items.length} />}
           {bloque && items.length >= CAPACIDAD_BLOQUE && (

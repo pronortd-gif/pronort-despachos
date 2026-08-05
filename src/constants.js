@@ -40,6 +40,13 @@ export function formatFechaLarga(iso) {
   return DIAS_CORTOS[dt.getDay()] + " " + String(d).padStart(2, "0") + " de " + MESES[m - 1];
 }
 
+// Etiqueta breve para los ejes de los gráficos: "05 ago". La fecha
+// completa no cabe derecha y obligaba a rotar las etiquetas 45°.
+export function etiquetaDiaCorta(iso) {
+  const [, m, d] = iso.split("-").map(Number);
+  return String(d).padStart(2, "0") + " " + MESES[m - 1].slice(0, 3);
+}
+
 export function diasAtras(n) {
   const dt = new Date();
   dt.setDate(dt.getDate() - n);

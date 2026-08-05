@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { TIPOS, BRAND, hoy, diasAtras, sedeLabel, colorLinea, sedeLinea, bandasHorarias, bandaDeHora, tituloDespacho, HORA_INICIO_JORNADA, HORA_FIN_JORNADA } from "./constants";
+import { TIPOS, BRAND, hoy, diasAtras, sedeLabel, colorLinea, sedeLinea, bandasHorarias, bandaDeHora, tituloDespacho, formatFechaLarga, etiquetaDiaCorta, HORA_INICIO_JORNADA, HORA_FIN_JORNADA } from "./constants";
 import { Icon, Modal, AvisoError } from "./ui";
 import { OPERACIONES, CAMPOS_FILTRO, calcularMetrica, formatoMetrica } from "./metricas";
 
@@ -217,6 +217,33 @@ export function VistaReportes({
         : "rgba(189,11,59," + (0.16 + (i - 0.5) * 2 * 0.62) + ")");
   };
 
+  // ---- Totales del mapa de calor ----
+  // Sin totales, la tabla decía en qué franja se concentra la carga pero
+  // no cuánta carga es en total, ni cuál sede acumula más: había que
+  // sumar las celdas con la vista.
+  const totalesCalor = useMemo(() => {
+    const porFila = {};
+    const porColumna = {};
+    let general = 0;
+    Object.keys(heat).forEach((clave) => {
+      const [hora, sede] = clave.split("|");
+      const v = heat[clave];
+      porFila[hora] = (porFila[hora] || 0) + v;
+      porColumna[sede] = (porColumna[sede] || 0) + v;
+      general += v;
+    });
+    return { porFila, porColumna, general };
+  }, [heat]);
+
+  // La franja con más carga, para señalarla en vez de dejar que el
+  // usuario la busque comparando colores parecidos.
+  const franjaPico = useMemo(() => {
+    const horas = Object.keys(totalesCalor.porFila);
+    if (horas.length === 0) return null;
+    const mejor = horas.reduce((a, b) => (totalesCalor.porFila[b] > totalesCalor.porFila[a] ? b : a));
+    return { hora: Number(mejor), total: totalesCalor.porFila[mejor] };
+  }, [totalesCalor]);
+
   // ---- Análisis por sede ----
   const porSede = useMemo(() => {
     const acc = {};
@@ -280,17 +307,83 @@ export function VistaReportes({
     // externo en tiempo de ejecución.
     import("chart.js/auto").then(({ default: Chart }) => {
       if (!vivo || !lienzo) return;
-      const etiquetas = datosGrafico ? datosGrafico.split(",").map((p) => p.slice(0, p.lastIndexOf(":"))) : [];
-      const valores = datosGrafico ? datosGrafico.split(",").map((p) => Number(p.slice(p.lastIndexOf(":") + 1))) : [];
+      const partes = datosGrafico ? datosGrafico.split(",") : [];
+      const fechas = partes.map((p) => p.slice(0, p.lastIndexOf(":")));
+      const valores = partes.map((p) => Number(p.slice(p.lastIndexOf(":") + 1)));
+      // "05 ago" en vez de "2026-08-05": la fecha cruda obligaba a rotar
+      // las etiquetas 45° y aun así costaba leerlas.
+      const etiquetas = fechas.map(etiquetaDiaCorta);
+      const promedio = valores.length ? valores.reduce((a, b) => a + b, 0) / valores.length : 0;
+      const colorTexto = oscuro ? "#A9AFC3" : "#5B6272";
+      const colorBarra = oscuro ? "#FF6B8F" : BRAND.rojo;
+
       grafico = new Chart(lienzo, {
         type: "bar",
-        data: { labels: etiquetas, datasets: [{ label: "Despachos por día", data: valores, backgroundColor: oscuro ? "#FF6B8F" : BRAND.rojo, borderRadius: 4 }] },
+        data: {
+          labels: etiquetas,
+          datasets: [
+            {
+              label: "Despachos",
+              data: valores,
+              backgroundColor: colorBarra,
+              hoverBackgroundColor: oscuro ? "#FF8FAB" : "#8A0829",
+              borderRadius: 4,
+              maxBarThickness: 42,
+              order: 2,
+            },
+            // Línea de promedio: da referencia de si un día fue alto o
+            // bajo. Sin ella, un pico de 7 no dice nada por sí solo.
+            {
+              label: "Promedio (" + promedio.toFixed(1) + ")",
+              data: valores.map(() => promedio),
+              type: "line",
+              borderColor: oscuro ? "#7FA8E8" : "#091F42",
+              borderWidth: 1.5,
+              borderDash: [5, 4],
+              pointRadius: 0,
+              pointHoverRadius: 0,
+              fill: false,
+              order: 1,
+            },
+          ],
+        },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
+          animation: { duration: 400, easing: "easeOutQuart" },
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: {
+              display: true, position: "bottom", align: "end",
+              labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: "circle", color: colorTexto, font: { size: 11 }, padding: 12 },
+            },
+            tooltip: {
+              backgroundColor: oscuro ? "#1C2438" : "#0B1220",
+              titleFont: { size: 12 }, bodyFont: { size: 12 },
+              padding: 10, cornerRadius: 6, displayColors: false,
+              callbacks: {
+                // El tooltip muestra la fecha completa con día de la
+                // semana, que la etiqueta corta del eje ya no cabe.
+                title: (items) => formatFechaLarga(fechas[items[0].dataIndex]),
+                label: (item) => (item.datasetIndex === 0
+                  ? item.parsed.y + (item.parsed.y === 1 ? " despacho" : " despachos")
+                  : "Promedio del rango: " + promedio.toFixed(1)),
+              },
+            },
+          },
           scales: {
-            y: { beginAtZero: true, ticks: { stepSize: 1, color: oscuro ? "#A9AFC3" : "#5B6272" }, grid: { color: oscuro ? "rgba(255,255,255,0.08)" : "rgba(9,31,66,0.08)" } },
-            x: { ticks: { maxRotation: 45, minRotation: 45, font: { size: 10 }, color: oscuro ? "#A9AFC3" : "#5B6272" }, grid: { display: false } },
+            y: {
+              beginAtZero: true,
+              ticks: { stepSize: 1, precision: 0, color: colorTexto, font: { size: 11 } },
+              grid: { color: oscuro ? "rgba(255,255,255,0.08)" : "rgba(9,31,66,0.08)", drawTicks: false },
+              border: { display: false },
+            },
+            x: {
+              // Sin rotación: la etiqueta corta cabe derecha, que se lee
+              // bastante mejor que en diagonal.
+              ticks: { maxRotation: 0, autoSkipPadding: 12, font: { size: 11 }, color: colorTexto },
+              grid: { display: false },
+              border: { color: oscuro ? "rgba(255,255,255,0.12)" : "rgba(9,31,66,0.12)" },
+            },
           },
         },
       });
@@ -345,9 +438,9 @@ export function VistaReportes({
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))", gap: 12, marginBottom: 28 }}>
         <div className="stat-card" style={{ animation: "statIn 0.3s cubic-bezier(0.16,1,0.3,1)" }}>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 4px" }}>Total en el rango</p>
+          <p className="stat-titulo">Total en el rango</p>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-            <p style={{ fontSize: 24, fontWeight: 500, margin: 0 }}>{despachosFiltrados.length}</p>
+            <p className="stat-valor">{despachosFiltrados.length}</p>
             {comparacion && (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 12, fontWeight: 500, color: comparacion.delta >= 0 ? "var(--ok)" : "var(--brand-accent)" }}>
                 <Icon name={comparacion.delta >= 0 ? "trending-up" : "trending-down"} size={14} />{Math.abs(comparacion.delta).toFixed(0)}%
@@ -357,26 +450,26 @@ export function VistaReportes({
           {comparacion && <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>vs. periodo anterior ({comparacion.anterior})</p>}
         </div>
         <div className="stat-card" style={{ animation: "statIn 0.3s cubic-bezier(0.16,1,0.3,1) 0.03s backwards" }}>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 4px" }}>Días con actividad</p>
-          <p style={{ fontSize: 24, fontWeight: 500, margin: 0 }}>{fechasOrdenadas.length}</p>
+          <p className="stat-titulo">Días con actividad</p>
+          <p className="stat-valor">{fechasOrdenadas.length}</p>
         </div>
         <div className="stat-card" style={{ animation: "statIn 0.3s cubic-bezier(0.16,1,0.3,1) 0.06s backwards" }}>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 4px" }}>Promedio por día</p>
-          <p style={{ fontSize: 24, fontWeight: 500, margin: 0 }}>{fechasOrdenadas.length ? (despachosFiltrados.length / fechasOrdenadas.length).toFixed(1) : "0"}</p>
+          <p className="stat-titulo">Promedio por día</p>
+          <p className="stat-valor">{fechasOrdenadas.length ? (despachosFiltrados.length / fechasOrdenadas.length).toFixed(1) : "0"}</p>
         </div>
         <div className="stat-card" style={{ animation: "statIn 0.3s cubic-bezier(0.16,1,0.3,1) 0.09s backwards" }}>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 4px" }}>% entregado</p>
-          <p style={{ fontSize: 24, fontWeight: 500, margin: 0, color: pctEntregado >= 80 ? "var(--ok)" : pctEntregado >= 50 ? "var(--warn)" : "var(--brand-accent)" }}>{pctEntregado.toFixed(0)}%</p>
+          <p className="stat-titulo">% entregado</p>
+          <p className="stat-valor" style={{ color: pctEntregado >= 80 ? "var(--ok)" : pctEntregado >= 50 ? "var(--warn)" : "var(--brand-accent)" }}>{pctEntregado.toFixed(0)}%</p>
         </div>
         <div className="stat-card" style={{ animation: "statIn 0.3s cubic-bezier(0.16,1,0.3,1) 0.11s backwards" }}>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 4px" }}>No entregados</p>
-          <p style={{ fontSize: 24, fontWeight: 500, margin: 0, color: noEntregadosTotal > 0 ? "var(--brand-accent)" : "var(--text-primary)" }}>{noEntregadosTotal}</p>
+          <p className="stat-titulo">No entregados</p>
+          <p className="stat-valor" style={{ color: noEntregadosTotal > 0 ? "var(--brand-accent)" : "var(--text-primary)" }}>{noEntregadosTotal}</p>
         </div>
         {metricas.map((m, idx) => (
           <div key={m.id} className="stat-card" style={{ position: "relative", animation: "statIn 0.3s cubic-bezier(0.16,1,0.3,1) " + (0.12 + idx * 0.03) + "s backwards" }}>
             <button onClick={async () => setError(await onEliminarMetrica(m.id) || "")} aria-label="Eliminar métrica" style={{ position: "absolute", top: 8, right: 8, width: 22, height: 22, padding: 0, border: "none" }}><Icon name="x" size={13} /></button>
-            <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 4px", paddingRight: 18 }}>{m.nombre}</p>
-            <p style={{ fontSize: 24, fontWeight: 500, margin: 0, color: "var(--brand-accent)" }}>{formatoMetrica(calcularMetrica(m, despachosFiltrados), m.operacion)}</p>
+            <p className="stat-titulo" style={{ paddingRight: 18 }} title={m.nombre}>{m.nombre}</p>
+            <p className="stat-valor" style={{ color: "var(--brand-accent)" }}>{formatoMetrica(calcularMetrica(m, despachosFiltrados), m.operacion)}</p>
           </div>
         ))}
       </div>
@@ -428,54 +521,78 @@ export function VistaReportes({
           {vistaCalor === "salida" ? "Aún no hay despachos con sede y horario asignados en este rango." : "Aún no hay horarios creados en este rango."}
         </p>
       ) : (
-        <div style={{ overflowX: "auto", marginBottom: 32 }}>
-          <table className="heat-tabla">
-            <thead>
-              <tr>
-                <th></th>
-                {sedesConDatos.map((cod) => (
-                  <th key={cod} style={{ padding: "4px 6px", textAlign: "center", fontSize: 11.5, minWidth: 78 }}>
-                    <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: cod === "__vacio__" ? "var(--text-muted)" : colorLinea(sedeLinea(cod, sedes), oscuro), marginRight: 5 }} />
-                    {cod === "__vacio__" ? "Vacío" : cod}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            {/* La "key" hace que el cuerpo se vuelva a montar al cambiar
-                de vista, tipo o rango: la tabla se rellena en diagonal y
-                se ve que los números corresponden al filtro nuevo, en vez
-                de cambiar de golpe sin avisar. */}
-            <tbody key={vistaCalor + "/" + tipoEnCalor + "/" + rango}>
-              {bandas.map((banda, fila) => {
-                const filaTotal = sedesConDatos.reduce((a, cod) => a + (heat[banda.hora + "|" + cod] || 0), 0);
-                return (
-                  <tr key={banda.hora}>
-                    <td className="heat-hora" style={{ fontSize: 11.5, color: filaTotal ? "var(--text-primary)" : "var(--text-muted)" }}>{banda.label}</td>
-                    {sedesConDatos.map((cod, col) => {
-                      const v = heat[banda.hora + "|" + cod] || 0;
-                      const intensa = v > 0 && intensidadVisual(v) > 0.62;
-                      return (
-                        <td
-                          key={cod}
-                          className="heat-celda"
-                          style={{
-                            background: colorCalor(v),
-                            color: intensa ? "#fff" : "var(--text-primary)",
-                            // Diagonal: fila + columna. Topado para que una
-                            // tabla grande no tarde en terminar de aparecer.
-                            animationDelay: Math.min(fila + col, 14) * 18 + "ms",
-                          }}
-                        >
-                          {v || ""}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <React.Fragment>
+          {franjaPico && (
+            <p style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 8 }}>
+              Franja con más carga: <strong style={{ color: "var(--brand-accent)" }}>
+                {String(franjaPico.hora).padStart(2, "0")}:00–{String(franjaPico.hora + 1).padStart(2, "0")}:00
+              </strong>{" "}
+              ({franjaPico.total} de {totalesCalor.general}, {Math.round((franjaPico.total / totalesCalor.general) * 100)}%).
+            </p>
+          )}
+          <div style={{ overflowX: "auto", marginBottom: 32 }}>
+            <table className="heat-tabla">
+              <thead>
+                <tr>
+                  <th></th>
+                  {sedesConDatos.map((cod) => (
+                    <th key={cod} style={{ padding: "4px 6px", textAlign: "center", fontSize: 11.5, minWidth: 78 }}>
+                      <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: cod === "__vacio__" ? "var(--text-muted)" : colorLinea(sedeLinea(cod, sedes), oscuro), marginRight: 5 }} />
+                      {cod === "__vacio__" ? "Vacío" : cod}
+                    </th>
+                  ))}
+                  <th className="heat-total-encabezado" style={{ padding: "4px 6px", textAlign: "center" }}>Total</th>
+                </tr>
+              </thead>
+              {/* La "key" hace que el cuerpo se vuelva a montar al cambiar
+                  de vista, tipo o rango: la tabla se rellena en diagonal y
+                  se ve que los números corresponden al filtro nuevo, en vez
+                  de cambiar de golpe sin avisar. */}
+              <tbody key={vistaCalor + "/" + tipoEnCalor + "/" + rango}>
+                {bandas.map((banda, fila) => {
+                  const filaTotal = totalesCalor.porFila[banda.hora] || 0;
+                  const esPico = franjaPico && franjaPico.hora === banda.hora && filaTotal > 0;
+                  return (
+                    <tr key={banda.hora}>
+                      <td className="heat-hora" style={{ fontSize: 11.5, color: filaTotal ? "var(--text-primary)" : "var(--text-muted)", fontWeight: esPico ? 700 : 500 }}>
+                        {banda.label}
+                      </td>
+                      {sedesConDatos.map((cod, col) => {
+                        const v = heat[banda.hora + "|" + cod] || 0;
+                        const intensa = v > 0 && intensidadVisual(v) > 0.62;
+                        return (
+                          <td
+                            key={cod}
+                            className="heat-celda"
+                            style={{
+                              background: colorCalor(v),
+                              color: intensa ? "#fff" : "var(--text-primary)",
+                              // Diagonal: fila + columna. Topado para que una
+                              // tabla grande no tarde en terminar de aparecer.
+                              animationDelay: Math.min(fila + col, 14) * 18 + "ms",
+                            }}
+                          >
+                            {v || ""}
+                          </td>
+                        );
+                      })}
+                      <td className="heat-total" style={{ color: esPico ? "var(--brand-accent)" : filaTotal ? "var(--text-primary)" : "var(--text-muted)" }}>
+                        {filaTotal || ""}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="heat-fila-total">
+                  <td className="heat-hora heat-total-encabezado" style={{ textAlign: "right" }}>Total</td>
+                  {sedesConDatos.map((cod) => (
+                    <td key={cod} className="heat-total">{totalesCalor.porColumna[cod] || ""}</td>
+                  ))}
+                  <td className="heat-total heat-gran-total">{totalesCalor.general}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </React.Fragment>
       )}
 
       <h3 style={{ marginBottom: 4 }}>Distribución por tipo</h3>

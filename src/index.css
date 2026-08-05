@@ -168,19 +168,28 @@ th { color: var(--text-secondary); font-weight: 500; }
 .tipo-chip[data-active="true"] { color: #fff; border-color: transparent; }
 .tipo-chip:hover:not([data-active="true"]) { border-color: var(--border-strong); }
 
-/* ---- Selector visual de horario ---- */
+/* ---- Selector visual de horario ----
+   max-width es obligatorio, no cosmético: .horario-chip es un <button>,
+   y la regla global de botones lleva white-space: nowrap. Sin un tope,
+   un horario con nombre largo ("Ruta norte camión 2 turno tarde")
+   estiraba el chip hasta desbordar la fila entera. */
 .horario-picker { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
 .horario-chip {
   flex-shrink: 0; display: flex; flex-direction: column;
   align-items: flex-start; gap: 2px;
   padding: 8px 14px; border-radius: 10px;
   border: 1.5px solid var(--border); background: var(--surface-2);
-  cursor: pointer; transition: all 0.15s ease; min-width: 96px;
+  cursor: pointer; transition: all 0.15s ease;
+  min-width: 96px; max-width: 190px;
 }
 .horario-chip[data-active="true"] { border-color: var(--brand-accent); background: rgba(189, 11, 59, 0.08); }
 :root[data-theme="dark"] .horario-chip[data-active="true"] { background: rgba(255, 107, 143, 0.1); }
+.horario-chip:hover:not([data-active="true"]) { border-color: var(--border-strong); }
 .horario-chip .hora { font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; }
-.horario-chip .nombre { font-size: 11px; color: var(--text-secondary); }
+.horario-chip .nombre {
+  font-size: 11px; color: var(--text-secondary);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ---- Calendario ----
    Sin aspect-ratio: en PC las celdas cuadradas se volvían enormes
@@ -213,8 +222,26 @@ th { color: var(--text-secondary); font-weight: 500; }
   background: var(--surface-1); border: 1px solid var(--border);
   border-radius: 20px; padding: 3px 10px; white-space: nowrap;
 }
+/* El nombre del horario se recorta con "..." en vez de empujar los
+   botones de la derecha fuera de la pantalla. El texto completo queda
+   en el title, al pasar el cursor. */
+.bloque-nombre {
+  font-weight: 500; font-size: 14px; min-width: 0;
+  max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+@media (max-width: 640px) { .bloque-nombre { max-width: 150px; } }
 
-.stat-card { background: var(--surface-1); border-radius: var(--radius); padding: 1rem; }
+/* ---- Tarjetas de indicador (Reportes) ---- */
+.stat-card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1rem;
+  transition: border-color 0.15s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.stat-card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+/* tabular-nums: sin esto las cifras cambian de ancho al actualizarse y
+   la tarjeta "salta" mientras se filtra. */
+.stat-valor { font-size: 24px; font-weight: 500; margin: 0; font-variant-numeric: tabular-nums; }
+.stat-titulo { font-size: 13px; color: var(--text-secondary); margin: 0 0 4px; }
 
 /* ---- Mapa de calor por bandas horarias ---- */
 .heat-tabla { border-collapse: separate; border-spacing: 3px; font-size: 12px; }
@@ -224,6 +251,22 @@ th { color: var(--text-secondary); font-weight: 500; }
   transition: background 0.25s ease;
 }
 .heat-hora { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; padding-right: 8px; }
+
+/* Resaltar la fila bajo el cursor: en una tabla de 10 filas por varias
+   sedes, seguir una franja horaria con la vista es fácil de perder. */
+.heat-tabla tbody tr { transition: background 0.12s ease; }
+.heat-tabla tbody tr:hover { background: var(--surface-1); }
+
+/* Totales: se distinguen del mapa por no llevar color de calor. Son
+   lectura de cifras, no de intensidad. */
+.heat-total {
+  text-align: center; font-variant-numeric: tabular-nums; font-weight: 600;
+  background: var(--surface-1); border-radius: 6px; padding: 7px 6px;
+  color: var(--text-primary); min-width: 60px;
+}
+.heat-total-encabezado { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+.heat-fila-total .heat-total { background: var(--surface-2); border: 1px solid var(--border); }
+.heat-gran-total { color: var(--brand-accent); }
 
 /* ---- Login ---- */
 .login-wrap {
