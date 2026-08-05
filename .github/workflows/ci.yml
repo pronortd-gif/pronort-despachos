@@ -17,7 +17,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22: "20" a secas puede resolver a una 20.x anterior a la
+          # 20.19 que exige Vite 7, y el CI fallaría por la versión de
+          # Node en vez de por el código.
+          node-version: 22
           cache: npm
 
       - run: npm ci

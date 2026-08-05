@@ -72,7 +72,7 @@ function FormSede({ inicial, enUso, onGuardar, onCancelar }) {
   );
 }
 
-export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEliminarValor, sedes, onGuardarSede, onEliminarSede, despachos, oscuro }) {
+export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEliminarValor, sedes, onGuardarSede, onEliminarSede, onContarUsoSede, despachos, oscuro }) {
   const [campoActivo, setCampoActivo] = useState("sedes");
   const [nuevo, setNuevo] = useState("");
   const [editando, setEditando] = useState(null);
@@ -87,6 +87,10 @@ export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEli
   };
   const tabsCatalogo = ["sedes"].concat(CAMPOS_CATALOGO);
 
+  // Uso aproximado, solo para la insignia de la lista: cuenta los
+  // despachos que hay EN MEMORIA (los últimos 90 días más los meses que
+  // se hayan abierto). El conteo que decide si se puede borrar una sede
+  // se pide al servidor al abrir el diálogo, porque este se queda corto.
   const usosPorSede = useMemo(() => {
     const acc = {};
     (despachos || []).forEach((d) => {
@@ -95,6 +99,16 @@ export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEli
     });
     return acc;
   }, [despachos]);
+
+  // Al pedir borrar una sede se consulta su uso real antes de mostrar
+  // nada: si tiene despachos, el diálogo no ofrece borrar.
+  const pedirEliminarSede = async (s) => {
+    setError("");
+    setModal({ tipo: "confirmar-sede", data: s, comprobando: true });
+    const { total, error: err } = await onContarUsoSede(s.codigo);
+    if (err) { cerrarModal(); setError(err); return; }
+    setModal({ tipo: "confirmar-sede", data: s, comprobando: false, usoReal: total });
+  };
 
   // El celular no se capitaliza (es un número); el resto sí, para que
   // no queden sugerencias duplicadas por mayúsculas/minúsculas distintas.
@@ -181,7 +195,7 @@ export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEli
                       </span>
                     )}
                     <button onClick={() => setModal({ tipo: "sede", data: s, enUso })} aria-label="Editar sede" style={{ width: 28, height: 28, padding: 0 }}><Icon name="edit" size={13} /></button>
-                    <button onClick={() => setModal({ tipo: "confirmar-sede", data: s, enUso })} aria-label="Eliminar sede" style={{ width: 28, height: 28, padding: 0 }}><Icon name="trash" size={13} /></button>
+                    <button onClick={() => pedirEliminarSede(s)} aria-label="Eliminar sede" style={{ width: 28, height: 28, padding: 0 }}><Icon name="trash" size={13} /></button>
                   </div>
                 );
               })}
@@ -230,11 +244,37 @@ export function VistaCatalogos({ catalogos, onAgregarValor, onEditarValor, onEli
       )}
       {modal && modal.tipo === "confirmar-sede" && (
         <Modal title="Eliminar sede" onClose={cerrarModal}>
-          <ConfirmarEliminar
-            titulo={modal.data.codigo + " · " + modal.data.nombre}
-            detalle={modal.enUso > 0 ? modal.enUso + " despacho(s) usan esta sede. No se eliminan, pero quedarán con un código sin nombre." : "Esta sede no tiene despachos asociados."}
-            onConfirm={ejecutarBorrado} onCancel={cerrarModal}
-          />
+          {modal.comprobando ? (
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 16px" }}>
+              <Icon name="refresh" size={13} girando /> Comprobando si esta sede tiene despachos...
+            </p>
+          ) : modal.usoReal > 0 ? (
+            // Borrar una sede en uso pone en NULL la sede de todos sus
+            // despachos históricos, y eso no se puede deshacer: recrear
+            // la sede no vuelve a vincularlos. Por eso no se ofrece.
+            <div>
+              <div style={{ background: "var(--surface-1)", borderRadius: "var(--radius)", padding: "0.75rem 1rem", marginBottom: 16, borderLeft: "3px solid var(--brand-accent)" }}>
+                <p style={{ margin: 0, fontWeight: 500, fontSize: 14 }}>{modal.data.codigo} · {modal.data.nombre}</p>
+                <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-secondary)" }}>
+                  {modal.usoReal} despacho(s) la usan, contando todo el histórico.
+                </p>
+              </div>
+              <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
+                No se puede eliminar. Si se borrara, esos despachos perderían para siempre a qué sede
+                pertenecían, y eso no lo arregla el botón de deshacer. Puedes cambiarle el nombre o la
+                línea desde el botón de editar.
+              </p>
+              <div className="form-acciones">
+                <button onClick={cerrarModal}>Entendido</button>
+              </div>
+            </div>
+          ) : (
+            <ConfirmarEliminar
+              titulo={modal.data.codigo + " · " + modal.data.nombre}
+              detalle="Ningún despacho usa esta sede, así que no se pierde nada."
+              onConfirm={ejecutarBorrado} onCancel={cerrarModal}
+            />
+          )}
         </Modal>
       )}
       {modal && modal.tipo === "confirmar-valor" && (

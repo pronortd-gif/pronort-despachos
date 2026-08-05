@@ -20,18 +20,26 @@
 create table sedes (
   codigo text primary key,
   nombre text not null,
-  linea text not null default 'OTRO'
+  linea text not null default 'OTRO',
+  constraint sedes_linea_valida check (linea in ('DRYWALL', 'ADITIVOS', 'ALMACEN', 'OTRO')),
+  constraint sedes_codigo_no_vacio check (length(trim(codigo)) > 0)
 );
 
 -- ---------- Bloques de horario ----------
 -- Cada horario pertenece a una fecha concreta (cada día tiene los suyos).
 -- El nombre es opcional: si no se pone, el horario se identifica por su hora.
+-- Las horas se guardan como texto "HH:MM".
 create table bloques (
   id uuid primary key default gen_random_uuid(),
   fecha date not null,
   nombre text,
   inicio text not null,
-  fin text not null
+  fin text not null,
+  constraint bloques_horas_formato check (
+    inicio ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' and
+    fin    ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+  ),
+  constraint bloques_fin_despues_de_inicio check (fin > inicio)
 );
 
 -- ---------- Despachos (el registro principal) ----------
@@ -71,7 +79,17 @@ create table despachos (
   maps_url text,
   estado text default 'pendiente', -- 'pendiente' | 'entregado' | 'no_entregado'
   orden integer default 0, -- orden manual dentro de un mismo horario (varios despachos en el mismo carro)
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+
+  -- La app escribe desde el navegador con la clave pública, así que el
+  -- formulario no es una barrera: cualquier llamada directa a la API
+  -- podría guardar valores inventados. Estas restricciones son el único
+  -- filtro que no se puede saltar.
+  constraint despachos_tipo_valido check (tipo in ('VENTA', 'COMPRA', 'MOV_MERCADERIA')),
+  constraint despachos_estado_valido check (estado in ('pendiente', 'entregado', 'no_entregado')),
+  constraint despachos_monto_no_negativo check (monto is null or monto >= 0),
+  constraint despachos_orden_no_negativo check (orden is null or orden >= 0),
+  constraint despachos_origen_distinto_destino check (sede_destino is null or tienda is null or sede_destino <> tienda)
 );
 
 -- ---------- Catálogos de sugerencias ----------
@@ -79,7 +97,9 @@ create table catalogos (
   id uuid primary key default gen_random_uuid(),
   campo text not null, -- 'cliente' | 'proveedor' | 'responsable' | 'celular' | 'direccion'
   valor text not null,
-  unique (campo, valor)
+  unique (campo, valor),
+  constraint catalogos_campo_valido check (campo in ('cliente', 'proveedor', 'responsable', 'celular', 'direccion')),
+  constraint catalogos_valor_no_vacio check (length(trim(valor)) > 0)
 );
 
 -- ---------- Métricas personalizadas (Reportes) ----------
@@ -88,7 +108,8 @@ create table metricas (
   nombre text not null,
   operacion text not null,
   filtro_campo text,
-  filtro_valor text
+  filtro_valor text,
+  constraint metricas_operacion_valida check (operacion in ('contar', 'sumar', 'promediar', 'porcentaje'))
 );
 
 -- ---------- Índices ----------

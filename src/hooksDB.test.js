@@ -12,7 +12,7 @@ const sb = vi.hoisted(() => {
   let actual = null;
 
   const cadena = {};
-  ["select", "insert", "update", "delete", "eq", "in", "gte", "lt", "lte", "order", "range", "single"].forEach((m) => {
+  ["select", "insert", "update", "delete", "eq", "in", "or", "gte", "lt", "lte", "order", "range", "single"].forEach((m) => {
     cadena[m] = (...args) => { actual.pasos.push({ m, args }); return cadena; };
   });
   cadena.then = (resolver, rechazar) => {
@@ -37,7 +37,7 @@ const sb = vi.hoisted(() => {
 
 vi.mock("./supabaseClient", () => ({ supabase: sb.cliente }));
 
-const { traerTodo, despachoDbToApp, despachoAppToDb, mensajeError, useDespachosDB, DIAS_VENTANA } = await import("./hooksDB");
+const { traerTodo, despachoDbToApp, despachoAppToDb, mensajeError, useDespachosDB, useSedesDB, useMapaHorarios, DIAS_VENTANA } = await import("./hooksDB");
 
 beforeEach(() => sb.limpiar());
 
@@ -331,6 +331,60 @@ describe("useDespachosDB: días fuera de la ventana de 90 días", () => {
     expect(sb.paso(sb.ultima("despachos"), "lt").args).toEqual(["fecha", "2021-01-01"]);
   });
 
+  // Segunda auditoría: el mes se marcaba como disponible ANTES de que
+  // llegara la respuesta, y "cargandoMes" era un único booleano. Al
+  // navegar rápido entre meses, la primera respuesta apagaba el
+  // indicador mientras el segundo mes seguía en el aire, y ese día se
+  // mostraba vacío y editable.
+  it("un mes en curso NO cuenta como disponible", async () => {
+    const { result } = await montar();
+    let resolver;
+    sb.encolar(new Promise((res) => { resolver = res; }));
+
+    let p;
+    await act(async () => {
+      p = result.current.asegurarMes(mesViejo);
+      await Promise.resolve();
+    });
+    expect(result.current.mesDisponible(mesViejo)).toBe(false);
+    expect(result.current.mesCargando(mesViejo)).toBe(true);
+
+    await act(async () => { resolver({ data: [], error: null }); await p; });
+    expect(result.current.mesDisponible(mesViejo)).toBe(true);
+    expect(result.current.mesCargando(mesViejo)).toBe(false);
+  });
+
+  it("dos meses a la vez: que uno termine no da por bueno el otro", async () => {
+    const { result } = await montar();
+    let resolverA;
+    sb.encolar(new Promise((res) => { resolverA = res; }));   // 2020-03
+    sb.encolar({ data: [], error: null });                     // 2020-04, responde ya
+
+    let pA, pB;
+    await act(async () => {
+      pA = result.current.asegurarMes("2020-03");
+      await Promise.resolve();
+      pB = result.current.asegurarMes("2020-04");
+      await pB;
+    });
+
+    // 2020-04 terminó, pero 2020-03 sigue en camino: no puede darse por
+    // disponible solo porque el otro haya respondido.
+    expect(result.current.mesDisponible("2020-04")).toBe(true);
+    expect(result.current.mesDisponible("2020-03")).toBe(false);
+
+    await act(async () => { resolverA({ data: [], error: null }); await pA; });
+    expect(result.current.mesDisponible("2020-03")).toBe(true);
+  });
+
+  it("un mes que falló no queda marcado como cargado", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: null, error: { message: "Failed to fetch" } });
+    await act(async () => { await result.current.asegurarMes(mesViejo); });
+    expect(result.current.mesDisponible(mesViejo)).toBe(false);
+    expect(result.current.mesCargando(mesViejo)).toBe(false);
+  });
+
   it("no se pide dos veces el mismo mes", async () => {
     const { result } = await montar();
     sb.encolar({ data: [], error: null });
@@ -431,5 +485,128 @@ describe("useDespachosDB: carreras entre recargas", () => {
     // todo el histórico" tiene que seguir disponible.
     expect(result.current.despachos.map((d) => d.id)).toEqual(["de-90-dias"]);
     expect(result.current.historicoCompleto).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------
+// Segunda auditoría (Alta): las dos claves foráneas de sede son
+// "on delete set null". Borrar una sede en uso ponía en NULL la sede de
+// todos sus despachos históricos, y el "deshacer" solo recreaba la fila
+// de la sede: los despachos ya habían perdido a qué sede pertenecían.
+// Encima el contador de uso miraba solo la memoria (90 días), así que
+// una sede con años de historia podía parecer sin usar.
+describe("useSedesDB: no se puede borrar una sede en uso", () => {
+  const montar = async () => {
+    sb.encolar({ data: [{ codigo: "P01", nombre: "Principal", linea: "DRYWALL" }], error: null });
+    const r = renderHook(() => useSedesDB());
+    await waitFor(() => expect(r.result.current.cargando).toBe(false));
+    sb.limpiar();
+    return r;
+  };
+
+  it("el uso se cuenta contra la base, mirando origen y destino", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: null, error: null, count: 137 });
+    let r;
+    await act(async () => { r = await result.current.contarUso("P01"); });
+
+    expect(r.total).toBe(137);
+    const op = sb.ultima("despachos");
+    // "or" para cubrir las dos columnas que referencian la sede.
+    expect(sb.paso(op, "or").args[0]).toBe("tienda.eq.P01,sede_destino.eq.P01");
+    // head:true -> solo cuenta, no se trae las filas.
+    expect(sb.paso(op, "select").args[1]).toEqual({ count: "exact", head: true });
+  });
+
+  it("con despachos asociados NO se borra, y se dice cuántos son", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: null, error: null, count: 137 });
+    let err;
+    await act(async () => { err = await result.current.eliminar("P01"); });
+
+    expect(err).toMatch(/137 despacho/);
+    // Lo esencial: nunca llegó a ejecutarse el delete.
+    expect(sb.registro.some((r) => r.pasos.some((p) => p.m === "delete"))).toBe(false);
+    expect(result.current.sedes).toHaveLength(1);
+  });
+
+  it("sin despachos asociados sí se borra", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: null, error: null, count: 0 });
+    sb.encolar({ data: null, error: null });
+    let err;
+    await act(async () => { err = await result.current.eliminar("P01"); });
+
+    expect(err).toBe("");
+    expect(sb.registro.some((r) => r.pasos.some((p) => p.m === "delete"))).toBe(true);
+    expect(result.current.sedes).toHaveLength(0);
+  });
+
+  it("si no se puede comprobar el uso, tampoco se borra", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: null, error: { message: "Failed to fetch" }, count: null });
+    let err;
+    await act(async () => { err = await result.current.eliminar("P01"); });
+
+    expect(err).toMatch(/Sin conexión/);
+    expect(sb.registro.some((r) => r.pasos.some((p) => p.m === "delete"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------
+// Segunda auditoría: el mapa de horarios arrastraba la misma carrera
+// que ya se había corregido para los despachos.
+describe("useMapaHorarios: carreras entre recargas", () => {
+  const montar = async () => {
+    sb.encolar({ data: [], error: null });
+    const r = renderHook(() => useMapaHorarios());
+    await waitFor(() => expect(r.result.current.cargando).toBe(false));
+    sb.limpiar();
+    return r;
+  };
+
+  it("una respuesta de 90 días que llega tarde no pisa el mapa completo", async () => {
+    const { result } = await montar();
+    let resolverLenta;
+    sb.encolar(new Promise((res) => { resolverLenta = res; }));            // 1ª: 90 días
+    sb.encolar({ data: [{ id: "b-historico", fecha: "2020-01-05" }], error: null }); // 2ª: histórico
+
+    await act(async () => {
+      const p1 = result.current.recargar(false);
+      await Promise.resolve();
+      const p2 = result.current.recargar(true);
+      await p2;
+      resolverLenta({ data: [{ id: "b-reciente", fecha: "2026-08-05" }], error: null });
+      await p1;
+    });
+
+    // Si ganara la respuesta vieja, los reportes de fechas antiguas se
+    // quedarían sin horarios y sus despachos desaparecerían del mapa.
+    expect(Object.keys(result.current.mapa)).toEqual(["b-historico"]);
+  });
+
+  it("una vez completo, las recargas siguientes siguen pidiendo todo", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: [], error: null });
+    await act(async () => { await result.current.recargar(true); });
+    sb.limpiar();
+
+    sb.encolar({ data: [], error: null });
+    await act(async () => { await result.current.recargar(); });
+    // Sin filtro de fecha: se sigue pidiendo el histórico entero.
+    expect(sb.paso(sb.ultima("bloques"), "gte")).toBeUndefined();
+  });
+
+  it("si la carga completa falla, no se recuerda como completa", async () => {
+    const { result } = await montar();
+    sb.encolar({ data: null, error: { message: "Failed to fetch" } });
+    await act(async () => { await result.current.recargar(true); });
+    sb.limpiar();
+
+    sb.encolar({ data: [], error: null });
+    await act(async () => { await result.current.recargar(); });
+    // Vuelve a la ventana de 90 días en vez de dar por hecho que ya
+    // tiene todo el histórico.
+    expect(sb.paso(sb.ultima("bloques"), "gte")).toBeDefined();
   });
 });

@@ -82,14 +82,38 @@ export function useSedesDB() {
     return "";
   };
 
+  // Cuenta CONTRA LA BASE cuántos despachos referencian esta sede, como
+  // origen o como destino. No sirve contar los que hay en memoria: al
+  // arrancar solo están los últimos 90 días, así que una sede con años
+  // de historia podía parecer que no la usaba nadie.
+  const contarUso = async (codigo) => {
+    const { count, error: err } = await supabase
+      .from("despachos")
+      .select("id", { count: "exact", head: true })
+      .or("tienda.eq." + codigo + ",sede_destino.eq." + codigo);
+    if (err) return { total: null, error: mensajeError(err, "comprobar si la sede está en uso") };
+    return { total: count || 0, error: "" };
+  };
+
   const eliminar = async (codigo) => {
+    // Comprobación de seguridad en el último momento: las dos claves
+    // foráneas son "on delete set null", así que borrar una sede en uso
+    // pondría en NULL la sede de TODOS sus despachos históricos, y eso
+    // no lo arregla ningún "deshacer" — la sede se recrearía vacía y los
+    // despachos ya habrían perdido a qué sede pertenecían.
+    const { total, error: errConteo } = await contarUso(codigo);
+    if (errConteo) return errConteo;
+    if (total > 0) {
+      return "No se puede eliminar " + codigo + ": " + total + " despacho(s) la usan. "
+        + "Si se borrara, esos despachos perderían para siempre a qué sede pertenecían.";
+    }
     const { error: err } = await supabase.from("sedes").delete().eq("codigo", codigo);
     if (err) return mensajeError(err, "eliminar la sede");
     setSedes((prev) => prev.filter((x) => x.codigo !== codigo));
     return "";
   };
 
-  return { sedes, cargando, error, agregar, actualizar, eliminar };
+  return { sedes, cargando, error, agregar, actualizar, eliminar, contarUso };
 }
 
 // ---------------- Horarios (bloques) ----------------
@@ -278,10 +302,15 @@ export function useDespachosDB() {
   // diario mira las últimas semanas.
   const [historicoCompleto, setHistoricoCompleto] = useState(false);
   const [cargandoHistorico, setCargandoHistorico] = useState(false);
-  const [cargandoMes, setCargandoMes] = useState(false);
+  // Lista, no booleano: dos meses pueden estar cargándose a la vez si se
+  // navega rápido por el calendario. Es estado (y no solo un ref) porque
+  // la vista tiene que volver a pintarse cuando uno termina.
+  const [mesesCargando, setMesesCargando] = useState([]);
 
-  // Meses anteriores a la ventana que ya se trajeron bajo demanda.
+  // Meses anteriores a la ventana que ya se trajeron bajo demanda, y los
+  // que están en camino ahora mismo.
   const mesesCargados = useRef(new Set());
+  const mesesEnCurso = useRef(new Set());
   // Contador de peticiones: varias cargas pueden solaparse (el refresco
   // al volver a la pestaña, el botón manual y "cargar histórico"), y sin
   // esto la que RESPONDE última gana, aunque sea la más antigua. Una
@@ -302,6 +331,7 @@ export function useDespachosDB() {
     // Una carga completa reemplaza la lista entera, así que los meses
     // traídos aparte dejan de estar presentes.
     mesesCargados.current = new Set();
+    setMesesCargando(Array.from(mesesEnCurso.current));
     setDespachos((data || []).map(despachoDbToApp));
     return true;
   }, []);
@@ -326,36 +356,48 @@ export function useDespachosDB() {
   const asegurarMes = useCallback(async (mes) => {
     if (!mes) return "";
     const dentroDeVentana = (mes + "-01") >= diasAtras(DIAS_VENTANA);
-    if (historicoRef.current || dentroDeVentana || mesesCargados.current.has(mes)) return "";
+    if (historicoRef.current || dentroDeVentana || mesesCargados.current.has(mes) || mesesEnCurso.current.has(mes)) return "";
 
-    mesesCargados.current.add(mes);
-    setCargandoMes(true);
+    // El mes se marca EN CURSO, no como cargado: darlo por disponible
+    // antes de que llegue la respuesta hacía que un día de ese mes se
+    // mostrara como vacío y editable mientras la consulta seguía en el
+    // aire. Solo pasa a "cargado" si de verdad llegan los datos.
+    mesesEnCurso.current.add(mes);
+    setMesesCargando(Array.from(mesesEnCurso.current));
+
     const { data, error: err } = await traerTodo(() =>
       supabase.from("despachos").select("*")
         .gte("fecha", mes + "-01")
         .lt("fecha", inicioDelMesSiguiente(mes))
         .order("fecha", { ascending: false })
     );
-    setCargandoMes(false);
+
+    mesesEnCurso.current.delete(mes);
+    setMesesCargando(Array.from(mesesEnCurso.current));
 
     if (err) {
-      // Se desmarca para que un reintento vuelva a pedirlo.
-      mesesCargados.current.delete(mes);
       const m = mensajeError(err, "cargar los despachos de ese mes");
       setError(m);
       return m;
     }
+    mesesCargados.current.add(mes);
     const traidos = (data || []).map(despachoDbToApp);
     setDespachos((prev) => prev.filter((d) => (d.fecha || "").slice(0, 7) !== mes).concat(traidos));
     return "";
   }, []);
 
   // Para que la vista sepa si un día está realmente cargado o solo
-  // parece vacío porque su mes nunca se pidió.
+  // parece vacío porque su mes nunca se pidió (o sigue en camino).
+  // Se seguían por separado, y no con un único booleano "cargandoMes",
+  // porque al navegar rápido entre meses la primera respuesta apagaba
+  // el indicador mientras el segundo mes seguía cargando.
   const mesDisponible = useCallback((mes) => {
     if (!mes) return true;
+    if (mesesEnCurso.current.has(mes)) return false;
     return historicoRef.current || (mes + "-01") >= diasAtras(DIAS_VENTANA) || mesesCargados.current.has(mes);
   }, []);
+
+  const mesCargando = useCallback((mes) => Boolean(mes) && mesesEnCurso.current.has(mes), []);
 
   const guardar = async (despacho) => {
     const yaEnPantalla = despacho.id && despachos.some((x) => x.id === despacho.id);
@@ -437,7 +479,7 @@ export function useDespachosDB() {
   return {
     despachos, cargando, error,
     historicoCompleto, cargandoHistorico, cargarHistorico, recargar,
-    cargandoMes, asegurarMes, mesDisponible,
+    mesesCargando, asegurarMes, mesDisponible, mesCargando,
     guardar, eliminar, cambiarEstado, actualizarOrden,
     desasignarBloque, reasignarBloque,
   };
@@ -557,17 +599,31 @@ export function useMapaHorarios() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const completo = useRef(false);
+  // Mismo problema que tenían los despachos: varias recargas pueden
+  // solaparse (cambiar de pestaña, el botón manual, pedir el histórico)
+  // y ganaba la que respondía última. Una consulta de 90 días que
+  // llegara después de la del histórico completo reemplazaba el mapa
+  // entero, y los reportes de fechas antiguas se quedaban sin horarios:
+  // sus despachos dejaban de aparecer en el mapa de calor.
+  const peticionActual = useRef(0);
 
   const recargar = useCallback(async (todoElHistorico) => {
-    if (todoElHistorico) completo.current = true;
+    const miPeticion = ++peticionActual.current;
+    const quiereCompleto = Boolean(todoElHistorico) || completo.current;
+
     const { data, error: err } = await traerTodo(() => {
       const q = supabase.from("bloques").select("id, fecha, nombre, inicio, fin");
-      return completo.current ? q : q.gte("fecha", diasAtras(DIAS_VENTANA));
+      return quiereCompleto ? q : q.gte("fecha", diasAtras(DIAS_VENTANA));
     });
+    if (miPeticion !== peticionActual.current) return;
+
     if (err) {
       setError(mensajeError(err, "cargar los horarios"));
     } else {
       setError("");
+      // Solo se recuerda que el mapa es completo si esta respuesta fue
+      // la que se aplicó de verdad.
+      if (quiereCompleto) completo.current = true;
       const m = {};
       (data || []).forEach((b) => { m[b.id] = b; });
       setMapa(m);

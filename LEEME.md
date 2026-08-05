@@ -35,7 +35,8 @@ git push
 
 ## Trabajar en local
 
-Hace falta [Node.js](https://nodejs.org) 18 o superior.
+Hace falta [Node.js](https://nodejs.org) **20.19 o superior** (o 22.12+). Lo exige Vite 7; con
+Node 18 la instalación falla.
 
 ```
 npm install
@@ -60,7 +61,14 @@ te llega al commit.
 
 ## La base de datos
 
-La base ya está creada en Supabase — **no hay ningún script que correr** para que la app funcione.
+> **Pendiente de ejecutar una vez:** `supabase_migracion_v4_restricciones.sql`.
+> Añade restricciones que impiden guardar valores imposibles (un estado inventado, un monto
+> negativo, un horario que termina antes de empezar). Hasta ahora el único filtro era el
+> formulario del navegador, y la app escribe con la clave pública: una llamada directa a la API
+> se lo saltaba. Está escrito para no poder fallar sobre los datos que ya tienes.
+> Supabase → **SQL Editor** → **New query** → pegar → **Run**.
+
+Salvo eso, la base ya está creada — **no hay ningún otro script que correr**.
 
 `supabase_esquema.sql` es el esquema de referencia: qué tablas hay, qué columnas, las claves
 foráneas y —lo más importante— las políticas de seguridad (RLS). Está versionado a propósito:
@@ -84,7 +92,14 @@ La contraseña se pide **una sola vez por dispositivo**: la sesión queda guarda
 Se vuelve a pedir solo si se borran los datos del navegador, se usa modo incógnito o se entra
 desde otro dispositivo. Para salir a propósito está el botón de arriba a la derecha.
 
-No hay registro abierto: las cuentas se crean a mano en Supabase → **Authentication** → **Users**.
+Las cuentas se crean a mano en Supabase → **Authentication** → **Users**.
+
+> **Comprueba que el registro abierto esté desactivado.** Supabase → **Authentication** →
+> **Sign In / Providers** → *Allow new users to sign up* debe estar **apagado**. Las políticas
+> de la base dan lectura y escritura completas a cualquier usuario autenticado, así que si el
+> alta libre estuviera activa, cualquiera podría crearse una cuenta desde fuera y tendría acceso
+> total a los datos. Es una opción del panel de Supabase, no del código: desde aquí no se puede
+> garantizar ni comprobar.
 
 ---
 

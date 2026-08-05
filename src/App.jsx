@@ -245,7 +245,7 @@ function AppInterna({ cerrarSesion, correo }) {
               mapaHorarios={horariosDB.mapa}
               onSeleccionarDia={abrirDia}
               oscuro={oscuro}
-              cargandoMes={despachosDB.cargandoMes}
+              cargandoMes={despachosDB.mesCargando(mesActual)}
             />
           )}
 
@@ -255,7 +255,7 @@ function AppInterna({ cerrarSesion, correo }) {
               onVolver={volverAlCalendario}
               bloques={bloquesDB.bloquesDe(diaSeleccionado)}
               cargandoBloques={bloquesDB.cargandoDe(diaSeleccionado)}
-              cargandoDespachos={despachosDB.cargandoMes || !despachosDB.mesDisponible(diaSeleccionado.slice(0, 7))}
+              cargandoDespachos={!despachosDB.mesDisponible(diaSeleccionado.slice(0, 7))}
               onGuardarBloque={guardarBloqueDelDia}
               onEliminarBloque={eliminarBloqueDelDia}
               onRestaurarBloque={restaurarBloque}
@@ -311,6 +311,7 @@ function AppInterna({ cerrarSesion, correo }) {
               sedes={sedesDB.sedes}
               onGuardarSede={guardarSede}
               onEliminarSede={sedesDB.eliminar}
+              onContarUsoSede={sedesDB.contarUso}
               despachos={despachosDB.despachos}
               oscuro={oscuro}
             />
