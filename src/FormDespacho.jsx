@@ -126,7 +126,15 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
   // significado cambia (ej. "Trasladado por" en Movimiento no es lo
   // mismo que "Responsable" en Venta), así que dejar el valor puesto
   // podría verse como si se hubiera llenado a propósito para el tipo nuevo.
+  //
+  // Comprobante, cobro y dirección se limpian con el mismo criterio
+  // (según lo que el tipo NUEVO usa, CONFIG_TIPO.usaX): antes solo se
+  // limpiaban persona y celular, así que un monto o un comprobante
+  // escritos antes de cambiar a Movimiento (que no usa ninguno de los
+  // dos) se guardaban igual en el despacho nuevo, invisibles en el
+  // formulario pero presentes en la base de datos.
   const cambiarTipo = (tipoNuevo) => {
+    const cfgNuevo = CONFIG_TIPO[tipoNuevo];
     setDatos((prev) => Object.assign({}, prev, {
       tipo: tipoNuevo,
       cliente: tipoNuevo === "VENTA" ? prev.cliente : "",
@@ -134,6 +142,12 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
       sedeDestino: tipoNuevo === "MOV_MERCADERIA" ? prev.sedeDestino : "",
       persona1: "", persona2: "",
       celular: "", celular1: "", celular2: "",
+      comprobante: cfgNuevo.usaComprobante ? prev.comprobante : "",
+      numGuia: cfgNuevo.usaComprobante ? prev.numGuia : "",
+      cobra: cfgNuevo.usaCobro ? prev.cobra : false,
+      monto: cfgNuevo.usaCobro ? prev.monto : "",
+      direccion: cfgNuevo.usaDireccion ? prev.direccion : "",
+      mapsUrl: cfgNuevo.usaDireccion ? prev.mapsUrl : "",
     }));
   };
 
@@ -143,7 +157,18 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
   const errores = useMemo(() => {
     const e = {};
     if (datos.tipo === "VENTA") {
-      if (!datos.cliente.trim() && !datos.tienda) e.general = "Ingresa al menos el cliente o la sede que despacha.";
+      // Antes bastaba con cliente O sede (cualquiera de los dos). Compra
+      // y Movimiento siempre exigen su sede; una Venta sin sede quedaba
+      // fuera del reporte "Desempeño por sede" y del mapa de calor por
+      // sede sin que nada lo advirtiera. Ahora se exigen ambos, igual
+      // que en los otros dos tipos.
+      if (!datos.cliente.trim()) e.general = "Ingresa el cliente.";
+      if (!datos.tienda) e.tienda = "Indica desde qué sede se despacha.";
+      // El campo tenía min="0" en el input, pero el <form> entero lleva
+      // noValidate (para controlar los mensajes de error a mano), así que
+      // ese límite nunca se aplicaba: se podía marcar "se cobra" y
+      // guardar con el monto vacío o negativo, sin ningún aviso.
+      if (datos.cobra && (!datos.monto || Number(datos.monto) <= 0)) e.monto = "Ingresa cuánto se cobra.";
     }
     if (datos.tipo === "COMPRA") {
       if (!datos.tienda) e.tienda = "Indica a qué sede llega la mercadería.";
@@ -402,13 +427,24 @@ export function FormDespacho({ inicial, bloqueIdInicial, bloques, fecha, onGuard
       {cfg.usaCobro && (
         <div className="form-grid form-grid-2" style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 20 }}>
-            <input type="checkbox" id="chk-cobra" checked={datos.cobra} onChange={(e) => cambiarCampo("cobra", e.target.checked)} />
+            <input
+              type="checkbox" id="chk-cobra" checked={datos.cobra}
+              onChange={(e) => {
+                // Al destildar se borra el monto también: si no, quedaba
+                // guardado en memoria y viajaba igual a la base de datos
+                // (cobra: false, monto: 150), un dato contradictorio que
+                // ningún reporte muestra pero que ahí se queda.
+                const marcado = e.target.checked;
+                setDatos((prev) => Object.assign({}, prev, { cobra: marcado, monto: marcado ? prev.monto : "" }));
+              }}
+            />
             <label htmlFor="chk-cobra" style={{ fontSize: 14 }}>¿Se cobra en la entrega?</label>
           </div>
           {datos.cobra && (
             <div>
-              <label className="campo-label">Monto (S/)</label>
-              <input type="number" min="0" step="0.1" value={datos.monto} onChange={(e) => cambiarCampo("monto", e.target.value)} style={{ width: "100%" }} />
+              <label className="campo-label" htmlFor="input-monto">Monto (S/)</label>
+              <input id="input-monto" type="number" min="0" step="0.1" value={datos.monto} onChange={(e) => cambiarCampo("monto", e.target.value)} style={Object.assign({ width: "100%" }, borde(errores.monto))} />
+              {intentoGuardar && errores.monto && <p style={{ fontSize: 12, color: "var(--brand-accent)", margin: "4px 0 0" }}>{errores.monto}</p>}
             </div>
           )}
         </div>

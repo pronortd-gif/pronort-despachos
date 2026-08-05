@@ -215,6 +215,9 @@ export function bandaDeHora(horaTexto) {
 // Venta, Compra y Movimiento no comparten la misma lógica:
 // cambian los campos, sus nombres y qué es obligatorio.
 // ============================================
+// Los tres tipos comparten un solo catálogo de nombres ("responsable"):
+// cualquier persona puede aparecer como Responsable de una venta,
+// Trasladado por de un movimiento, etc. No hay un catálogo por rol.
 export const CONFIG_TIPO = {
   VENTA: {
     sedeLabel: "Sede que despacha",
@@ -228,8 +231,8 @@ export const CONFIG_TIPO = {
     usaCelularPorPersona: false,
     celularJuntoA: "persona2", // el celular de contacto es del cliente/quien recepciona, no del responsable
     permiteCopiarPersona: true,
-    persona1: { label: "Responsable", ayuda: "Quién gestiona la venta", icono: "user-check", catalogo: "responsable" },
-    persona2: { label: "Recepcionado por", ayuda: "Quién recibe el pedido en destino (puede ser el mismo responsable)", icono: "truck-delivery", catalogo: "responsable" },
+    persona1: { label: "Responsable", ayuda: "Quién gestiona la venta", icono: "user-check" },
+    persona2: { label: "Recepcionado por", ayuda: "Quién recibe el pedido en destino (puede ser el mismo responsable)", icono: "truck-delivery" },
   },
   COMPRA: {
     sedeLabel: "Sede que recibe",
@@ -243,8 +246,8 @@ export const CONFIG_TIPO = {
     usaCelularPorPersona: false,
     celularJuntoA: "titulo", // el celular de contacto es del proveedor (que ya es el título de la tarjeta)
     permiteCopiarPersona: true,
-    persona1: { label: "Responsable", ayuda: "Quién hizo o autorizó este pedido de compra", icono: "user-check", catalogo: "responsable" },
-    persona2: { label: "Recepcionado por", ayuda: "Quién trae o entrega la mercadería en la sede (puede ser el mismo responsable)", icono: "truck-delivery", catalogo: "responsable" },
+    persona1: { label: "Responsable", ayuda: "Quién hizo o autorizó este pedido de compra", icono: "user-check" },
+    persona2: { label: "Recepcionado por", ayuda: "Quién trae o entrega la mercadería en la sede (puede ser el mismo responsable)", icono: "truck-delivery" },
   },
   MOV_MERCADERIA: {
     sedeLabel: "Sede origen",
@@ -258,8 +261,8 @@ export const CONFIG_TIPO = {
     usaCelularPorPersona: true,
     celularJuntoA: null,
     permiteCopiarPersona: false,
-    persona1: { label: "Trasladado por", ayuda: "Quién lleva la mercadería", icono: "truck", catalogo: "responsable" },
-    persona2: { label: "Recibe en destino", ayuda: "Quién la recibe en la sede de destino (opcional)", icono: "user-check", catalogo: "responsable" },
+    persona1: { label: "Trasladado por", ayuda: "Quién lleva la mercadería", icono: "truck" },
+    persona2: { label: "Recibe en destino", ayuda: "Quién la recibe en la sede de destino (opcional)", icono: "user-check" },
   },
 };
 
