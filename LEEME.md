@@ -60,14 +60,9 @@ te llega al commit.
 
 ## La base de datos
 
-Los scripts SQL se ejecutan en supabase.com → **SQL Editor** → **New query** → pegar → **Run**.
-
-- **`supabase_setup.sql`** — crea todo desde cero. Úsalo **solo** para una base nueva y vacía
-  (otro cliente, un ambiente de pruebas). Está al día: incluye ya lo que hacían las dos
-  migraciones. **No lo corras sobre la base que está en uso**, porque recrearía las tablas.
-- **`supabase_migracion_v2.sql`** y **`supabase_migracion_v3.sql`** — ya aplicadas en la base
-  actual. Se conservan como registro de cómo llegó el esquema a su estado de hoy. Son seguras
-  de volver a correr (usan `IF NOT EXISTS`), pero no hace falta.
+La base ya está creada y migrada en Supabase — no hay ningún script que correr para que la app
+funcione. Si en el futuro hace falta cambiar el esquema (una columna nueva, una tabla), se agrega
+un script SQL nuevo al repositorio y se corre una sola vez en supabase.com → **SQL Editor**.
 
 Para mirar los datos en crudo: Supabase → **Table Editor**.
 
